@@ -1,0 +1,206 @@
+@page "/projects"
+@attribute [Authorize(Roles = "UnitManager")]
+@rendermode InteractiveServer
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+
+<PageTitle>المشاريع | مدير العمل</PageTitle>
+
+<section class="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+    <div><p class="mb-2 text-sm font-extrabold text-brand-600">إدارة العمل</p><h1 class="m-0 text-3xl font-black text-slate-900">المشاريع</h1><p class="mb-0 mt-3 text-sm leading-7 text-slate-500">أنشئ المشاريع النشطة، حدّد إطارها الزمني، وأرشف ما انتهى مع الاحتفاظ بسجلّه.</p></div>
+    <button type="button" class="btn-primary" @onclick="OpenNewProject"><i class="fa-solid fa-folder-plus" aria-hidden="true"></i> مشروع جديد</button>
+</section>
+
+<PageToast Message="@message" IsError="@isError" />
+
+@if (showForm)
+{
+    <section class="section-card mt-6 p-6 sm:p-7">
+        <div class="mb-6 flex items-center justify-between"><div><h2 class="m-0 text-lg font-black text-slate-800">@(editingProjectId.HasValue ? "تعديل المشروع" : "مشروع جديد")</h2><p class="mb-0 mt-1 text-xs font-bold text-slate-400">أضف رابط المشروع وآخر نسخة عند توفرهما، ويمكن إسناد المشروع لأكثر من مبرمج.</p></div><button type="button" class="text-slate-400 transition hover:text-slate-700" title="إغلاق" @onclick="CloseForm"><i class="fa-solid fa-xmark text-lg" aria-hidden="true"></i></button></div>
+        <EditForm Model="draft" OnValidSubmit="SaveProject" class="grid gap-5 md:grid-cols-2">
+            <DataAnnotationsValidator />
+            <div><label class="form-label-modern" for="project-name">اسم المشروع</label><InputText id="project-name" class="form-control-modern pr-4" @bind-Value="draft.Name" placeholder="مثال: نظام متابعة الطلبات" /><ValidationMessage For="() => draft.Name" class="validation-modern" /></div>
+            <div><label class="form-label-modern" for="project-url">رابط المشروع <span class="font-normal text-slate-400">(اختياري)</span></label><div class="input-with-icon"><i class="fa-solid fa-link" aria-hidden="true"></i><InputText id="project-url" class="form-control-modern" @bind-Value="draft.ProjectUrl" placeholder="https://example.com/project" /></div><p class="mb-0 mt-2 text-xs font-bold text-slate-400">يقبل أي نص أو رابط بأي طول.</p></div>
+            <div class="md:col-span-2"><label class="form-label-modern" for="project-release-url">رابط آخر نسخة <span class="font-normal text-slate-400">(اختياري)</span></label><div class="input-with-icon"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i><InputText id="project-release-url" class="form-control-modern" @bind-Value="draft.LatestReleaseUrl" placeholder="https://example.com/latest-release" /></div><p class="mb-0 mt-2 text-xs font-bold text-slate-400">أضف رابط تحميل النسخة المنشورة أو آخر إصدار متاح.</p></div>
+            <div class="md:col-span-2"><label class="form-label-modern">المبرمجون المسؤولون</label><p class="mb-3 text-xs font-bold text-slate-400">اختر مبرمجاً واحداً أو أكثر. أول اسم محدد هو المسؤول الرئيسي في التقارير.</p><div class="project-developer-picker">@foreach (var developer in developers) { var selected = draft.DeveloperIds.Contains(developer.Id); <label class="project-developer-option @(selected ? "selected" : string.Empty)"><input type="checkbox" checked="@selected" @onchange="args => ToggleDeveloper(developer.Id, args)" /><span class="user-avatar h-8 w-8 rounded-lg text-xs">@Initials(DeveloperName(developer))</span><span class="min-w-0 flex-1 truncate">@DeveloperName(developer)</span><i class="fa-solid fa-check text-xs text-brand-600" aria-hidden="true"></i></label> }</div><ValidationMessage For="() => draft.DeveloperIds" class="validation-modern" /></div>
+            <div class="md:col-span-2"><label class="form-label-modern" for="project-description">وصف مختصر <span class="font-normal text-slate-400">(اختياري)</span></label><InputTextArea id="project-description" class="form-control-modern min-h-24 pr-4" @bind-Value="draft.Description" placeholder="الهدف أو نطاق العمل..." /></div>
+            <div class="flex gap-3 md:col-span-2"><button type="submit" class="btn-primary">@(editingProjectId.HasValue ? "حفظ التعديلات" : "حفظ المشروع") <i class="fa-solid fa-check" aria-hidden="true"></i></button><button type="button" class="btn-secondary" @onclick="CloseForm">إلغاء</button></div>
+        </EditForm>
+    </section>
+}
+
+<ListSearchFilters @bind-SearchText="searchText" @bind-FromDate="fromDate" @bind-ToDate="toDate" IdPrefix="projects-list" SearchPlaceholder="ابحث باسم المشروع أو رابطه أو وصفه">
+    <div><label class="form-label-modern" for="projects-developer-filter">المبرمج</label><AppDropdown Id="projects-developer-filter" @bind-Value="selectedDeveloperId" Options="DeveloperFilterOptions" /></div>
+    <div><label class="form-label-modern" for="projects-project-filter">المشروع</label><AppDropdown Id="projects-project-filter" @bind-Value="selectedProjectId" Options="ProjectFilterOptions" /></div>
+</ListSearchFilters>
+
+<section class="section-card mt-6 overflow-hidden">
+    <div class="flex items-center justify-between border-b border-slate-100 px-6 py-5"><div><h2 class="m-0 text-base font-black text-slate-800">المشاريع المسجلة</h2><p class="mb-0 mt-1 text-xs font-bold text-slate-400">@FilteredProjects.Count مشروعاً في القائمة</p></div><span class="rounded-lg bg-brand-50 px-3 py-1.5 text-xs font-extrabold text-brand-600">@projects.Count نشط</span></div>
+    @if (isLoading)
+    {
+        <div class="p-6"><div class="h-28 animate-pulse rounded-2xl bg-slate-100"></div></div>
+    }
+    else if (FilteredProjects.Count == 0)
+    {
+        <div class="grid min-h-72 place-items-center p-8 text-center"><div><span class="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-brand-50 text-brand-600"><i class="fa-solid fa-folder-open text-xl" aria-hidden="true"></i></span><h3 class="mb-0 mt-4 text-base font-black text-slate-700">لا توجد مشاريع بعد</h3><p class="mb-0 mt-2 text-sm text-slate-400">ابدأ بإضافة أول مشروع للفريق.</p></div></div>
+    }
+    else
+    {
+        <div class="overflow-x-auto">
+            <table class="update-log-table projects-table">
+                <thead><tr><th>المشروع</th><th>روابط المشروع</th><th>المبرمجون</th><th>الوصف</th><th>الإجراءات</th></tr></thead>
+                <tbody>
+                    @foreach (var project in FilteredProjects)
+                    {
+                        <tr @key="project.Id">
+                            <td><span class="inline-flex max-w-full items-center gap-2 font-black text-slate-800"><i class="fa-solid fa-folder text-brand-600"></i><span class="truncate">@project.Name</span></span></td>
+                            <td><div class="flex flex-col items-center gap-2">@if (!string.IsNullOrWhiteSpace(project.ProjectUrl)) { @if (IsHttpUrl(project.ProjectUrl)) { <a class="inline-flex max-w-full items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[11px] font-bold text-brand-700 no-underline" href="@project.ProjectUrl" target="_blank" rel="noopener noreferrer" title="@project.ProjectUrl"><i class="fa-solid fa-link" aria-hidden="true"></i><span class="max-w-28 truncate">رابط المشروع</span></a> } else { <span class="inline-flex max-w-full items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[11px] font-bold text-brand-700" title="@project.ProjectUrl"><i class="fa-solid fa-link" aria-hidden="true"></i><span class="max-w-28 truncate">رابط المشروع</span></span> } }@if (!string.IsNullOrWhiteSpace(project.LatestReleaseUrl)) { @if (IsHttpUrl(project.LatestReleaseUrl)) { <a class="inline-flex max-w-full items-center gap-1 rounded-md bg-brand-50 px-2 py-1 text-[11px] font-bold text-brand-700 no-underline" href="@project.LatestReleaseUrl" target="_blank" rel="noopener noreferrer" title="@project.LatestReleaseUrl"><i class="fa-solid fa-download" aria-hidden="true"></i><span class="max-w-28 truncate">آخر نسخة</span></a> } else { <span class="inline-flex max-w-full items-center gap-1 rounded-md bg-brand-50 px-2 py-1 text-[11px] font-bold text-brand-700" title="@project.LatestReleaseUrl"><i class="fa-solid fa-download" aria-hidden="true"></i><span class="max-w-28 truncate">آخر نسخة</span></span> } }@if (string.IsNullOrWhiteSpace(project.ProjectUrl) && string.IsNullOrWhiteSpace(project.LatestReleaseUrl)) { <span class="text-xs text-slate-400">—</span> }</div></td>
+                            <td><div class="flex flex-wrap justify-center gap-1">@foreach (var developer in project.Developers.OrderBy(x => x.Developer.FullName)) { <span class="rounded-md bg-brand-50 px-2 py-1 text-[11px] font-extrabold text-brand-700">@DeveloperName(developer.Developer)</span> }</div></td>
+                            <td><span class="block truncate text-slate-500" title="@project.Description">@(string.IsNullOrWhiteSpace(project.Description) ? "لا يوجد وصف للمشروع" : project.Description)</span></td>
+                            <td><div class="flex flex-wrap items-center justify-center gap-2"><button type="button" class="grid h-9 w-9 place-items-center rounded-lg bg-brand-50 text-xs font-extrabold text-brand-700" @onclick="() => OpenEdit(project)" title="تعديل المشروع" aria-label="تعديل المشروع"><i class="fa-solid fa-pen" aria-hidden="true"></i></button><a class="rounded-lg bg-brand-50 px-3 py-2 text-xs font-extrabold text-brand-700 no-underline" href="@($"reports/project-pdf?projectId={project.Id}")" target="_blank" title="تقرير PDF"><i class="fa-solid fa-file-pdf ml-1" aria-hidden="true"></i>PDF</a><button type="button" class="rounded-lg px-3 py-2 text-xs font-extrabold @(project.IsArchived ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600")" @onclick="() => ToggleArchive(project.Id)"><i class="fa-solid fa-box-archive ml-1" aria-hidden="true"></i>@(project.IsArchived ? "استعادة" : "أرشفة")</button></div></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@code {
+    private readonly List<WorkProject> projects = [];
+    private readonly List<ApplicationUser> developers = [];
+    private ProjectDraft draft = new();
+    private bool isLoading = true;
+    private bool showForm;
+    private int? editingProjectId;
+    private bool isError;
+    private string? message;
+    private string selectedDeveloperId = string.Empty;
+    private string selectedProjectId = string.Empty;
+    private string searchText = string.Empty;
+    private DateOnly? fromDate;
+    private DateOnly? toDate;
+    private List<WorkProject> FilteredProjects => projects.Where(x =>
+        (string.IsNullOrWhiteSpace(selectedDeveloperId) || x.Developers.Any(developer => developer.DeveloperId == selectedDeveloperId)) &&
+        (string.IsNullOrWhiteSpace(selectedProjectId) || x.Id.ToString() == selectedProjectId) &&
+        (string.IsNullOrWhiteSpace(searchText) || x.Name.Contains(searchText, StringComparison.OrdinalIgnoreCase) || (x.ProjectUrl?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) || (x.LatestReleaseUrl?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) || (x.Description?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false)) &&
+        (!fromDate.HasValue || DateOnly.FromDateTime(x.CreatedAt) >= fromDate.Value) &&
+        (!toDate.HasValue || DateOnly.FromDateTime(x.CreatedAt) <= toDate.Value)).ToList();
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        projects.Clear();
+        projects.AddRange(await db.Projects.AsNoTracking().Include(x => x.WorkItems).Include(x => x.Developers).ThenInclude(x => x.Developer).Where(x => !x.IsArchived).OrderByDescending(x => x.CreatedAt).ToListAsync());
+        developers.Clear();
+        developers.AddRange(await db.Users.AsNoTracking().Where(x => !x.IsArchived).OrderBy(x => x.FullName).ToListAsync());
+        isLoading = false;
+    }
+
+    private void OpenNewProject()
+    {
+        draft = new();
+        editingProjectId = null;
+        message = null;
+        showForm = true;
+    }
+
+    private void OpenEdit(WorkProject project)
+    {
+        draft = new ProjectDraft
+        {
+            Name = project.Name,
+            ProjectUrl = project.ProjectUrl,
+            LatestReleaseUrl = project.LatestReleaseUrl,
+            Description = project.Description,
+            DeveloperIds = project.Developers.Select(x => x.DeveloperId).ToList()
+        };
+        if (draft.DeveloperIds.Count == 0 && !string.IsNullOrWhiteSpace(project.AssignedDeveloperId)) draft.DeveloperIds.Add(project.AssignedDeveloperId);
+        editingProjectId = project.Id;
+        message = null;
+        showForm = true;
+    }
+
+    private void CloseForm() { showForm = false; editingProjectId = null; }
+    private IEnumerable<AppDropdownOption> DeveloperOptions => [.. developers.Select(x => new AppDropdownOption(x.Id, string.IsNullOrWhiteSpace(x.FullName) ? x.UserName ?? "مستخدم" : x.FullName))];
+    private IEnumerable<AppDropdownOption> DeveloperFilterOptions => [new(string.Empty, "كل المبرمجين"), .. DeveloperOptions];
+    private IEnumerable<AppDropdownOption> ProjectFilterOptions => [new(string.Empty, "كل المشاريع"), .. projects.Select(x => new AppDropdownOption(x.Id.ToString(), x.Name))];
+
+    private async Task SaveProject()
+    {
+        var developerIds = draft.DeveloperIds.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct().ToList();
+        var isEditing = editingProjectId.HasValue;
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var availableDeveloperIds = await db.Users.Where(x => developerIds.Contains(x.Id) && !x.IsArchived).Select(x => x.Id).ToListAsync();
+        if (developerIds.Count == 0 || availableDeveloperIds.Count != developerIds.Count)
+        {
+            isError = true;
+            message = "اختر مبرمجاً نشطاً واحداً على الأقل لإسناد المشروع.";
+            return;
+        }
+
+        if (editingProjectId is int projectId)
+        {
+            var project = await db.Projects.FindAsync(projectId);
+            if (project is null || project.IsArchived) { isError = true; message = "تعذر العثور على المشروع المطلوب تعديله."; return; }
+            project.Name = draft.Name.Trim();
+            project.ProjectUrl = NormalizeOptionalText(draft.ProjectUrl);
+            project.LatestReleaseUrl = NormalizeOptionalText(draft.LatestReleaseUrl);
+            project.Description = string.IsNullOrWhiteSpace(draft.Description) ? null : draft.Description.Trim();
+            project.AssignedDeveloperId = developerIds[0];
+
+            var assignments = await db.ProjectDevelopers.Where(x => x.ProjectId == project.Id).ToListAsync();
+            db.ProjectDevelopers.RemoveRange(assignments.Where(x => !developerIds.Contains(x.DeveloperId)));
+            foreach (var developerId in developerIds.Except(assignments.Select(x => x.DeveloperId))) db.ProjectDevelopers.Add(new ProjectDeveloper { ProjectId = project.Id, DeveloperId = developerId });
+        }
+        else
+        {
+            var project = new WorkProject { Name = draft.Name.Trim(), ProjectUrl = NormalizeOptionalText(draft.ProjectUrl), LatestReleaseUrl = NormalizeOptionalText(draft.LatestReleaseUrl), Description = string.IsNullOrWhiteSpace(draft.Description) ? null : draft.Description.Trim(), AssignedDeveloperId = developerIds[0] };
+            foreach (var developerId in developerIds) project.Developers.Add(new ProjectDeveloper { DeveloperId = developerId });
+            db.Projects.Add(project);
+        }
+        await db.SaveChangesAsync();
+        showForm = false;
+        editingProjectId = null;
+        isError = false;
+        message = isEditing ? "تم حفظ تعديلات المشروع بنجاح." : "تمت إضافة المشروع بنجاح.";
+        await LoadAsync();
+    }
+
+    private void ToggleDeveloper(string developerId, ChangeEventArgs args)
+    {
+        var selected = args.Value is bool value && value;
+        if (selected && !draft.DeveloperIds.Contains(developerId)) draft.DeveloperIds.Add(developerId);
+        if (!selected) draft.DeveloperIds.Remove(developerId);
+    }
+
+    private static string DeveloperName(ApplicationUser developer) => string.IsNullOrWhiteSpace(developer.FullName) ? developer.UserName ?? "مستخدم" : developer.FullName;
+    private static string Initials(string name) => string.Concat(name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(x => x[0]));
+    private static string? NormalizeOptionalText(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    private static bool IsHttpUrl(string? value) => Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https";
+
+    private async Task ToggleArchive(int id)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var project = await db.Projects.FindAsync(id);
+        if (project is null) return;
+        project.IsArchived = !project.IsArchived;
+        await db.SaveChangesAsync();
+        isError = false;
+        message = project.IsArchived ? "تم نقل المشروع إلى سجل الأرشيف مع الاحتفاظ بسجلّه." : "تمت استعادة المشروع.";
+        await LoadAsync();
+    }
+
+    private sealed class ProjectDraft
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "اسم المشروع مطلوب.")]
+        [System.ComponentModel.DataAnnotations.StringLength(200)] public string Name { get; set; } = string.Empty;
+        public string? ProjectUrl { get; set; }
+        public string? LatestReleaseUrl { get; set; }
+        [System.ComponentModel.DataAnnotations.StringLength(2000)] public string? Description { get; set; }
+        [System.ComponentModel.DataAnnotations.MinLength(1, ErrorMessage = "اختر مبرمجاً واحداً على الأقل.")]
+        public List<string> DeveloperIds { get; set; } = [];
+    }
+}

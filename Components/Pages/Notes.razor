@@ -1,0 +1,132 @@
+@page "/notes"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@using System.ComponentModel.DataAnnotations
+@using System.Security.Claims
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+
+<PageTitle>الملاحظات | مدير العمل</PageTitle>
+
+<section class="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+    <div>
+        <p class="page-eyebrow">تنظيم العمل الشخصي</p>
+        <h1 class="m-0 text-3xl font-black text-slate-900">ملاحظاتي</h1>
+        <p class="mb-0 mt-3 text-sm leading-7 text-slate-500">دوّن ما تريد إنجازه لاحقًا، ثم علّم عليه عند اكتماله.</p>
+    </div>
+    <span class="rounded-xl bg-brand-50 px-4 py-2 text-sm font-extrabold text-brand-700"><i class="fa-solid fa-list-check ml-2" aria-hidden="true"></i>@PendingNotes.Count قيد المتابعة</span>
+</section>
+
+<section class="section-card mt-6 p-5 sm:p-6">
+    <EditForm Model="draft" OnValidSubmit="AddNoteAsync" class="flex flex-col gap-3 sm:flex-row sm:items-start">
+        <DataAnnotationsValidator />
+        <div class="min-w-0 flex-1"><InputTextArea @bind-Value="draft.Text" class="form-control-modern min-h-24 pr-4" placeholder="مثال: مراجعة واجهة التقارير بعد وصول الملاحظات..." /><ValidationMessage For="() => draft.Text" class="validation-modern" /></div>
+        <button class="btn-primary shrink-0 sm:mt-0" type="submit" disabled="@isSaving"><i class="fa-solid @(isSaving ? "fa-spinner fa-spin" : "fa-plus")" aria-hidden="true"></i>@(isSaving ? "جارٍ الحفظ" : "إضافة ملاحظة")</button>
+    </EditForm>
+</section>
+
+<PageToast Message="@message" IsError="@isError" />
+
+<section class="section-card mt-6 overflow-hidden">
+    <div class="flex items-center justify-between border-b border-slate-100 px-6 py-5"><div><h2 class="m-0 text-base font-black text-slate-800">قائمة الملاحظات</h2><p class="mb-0 mt-1 text-xs font-bold text-slate-400">@notes.Count ملاحظة، مرتبة من الأحدث إلى الأقدم.</p></div><span class="metric-icon h-10 w-10 bg-brand-50 text-brand-600"><i class="fa-regular fa-note-sticky" aria-hidden="true"></i></span></div>
+    @if (isLoading)
+    {
+        <div class="p-6"><div class="h-28 animate-pulse rounded-2xl bg-slate-100"></div></div>
+    }
+    else if (notes.Count == 0)
+    {
+        <div class="empty-state"><div><i class="fa-regular fa-note-sticky text-3xl text-brand-600" aria-hidden="true"></i><h3 class="mb-0 mt-4 text-base font-black text-slate-700">لا توجد ملاحظات بعد</h3><p class="mb-0 mt-2 text-sm text-slate-400">أضف أول ملاحظة لتظهر في قائمتك.</p></div></div>
+    }
+    else
+    {
+        <div class="divide-y divide-slate-100">
+            @foreach (var note in notes)
+            {
+                <article class="flex items-center gap-4 px-5 py-4 sm:px-6" @key="note.Id">
+                    <input class="note-completion-control" type="checkbox" checked="@note.IsCompleted" @onchange="args => ToggleCompletedAsync(note, args)" aria-label="تحديد الملاحظة كمكتملة" />
+                    <div class="min-w-0 flex-1"><p class="m-0 text-sm font-extrabold @(note.IsCompleted ? "text-slate-400 line-through" : "text-slate-700")">@note.Text</p><p class="mb-0 mt-1 text-[11px] font-bold text-slate-400">@(note.IsCompleted ? $"مكتملة في {note.CompletedAt?.ToLocalTime():yyyy/MM/dd HH:mm}" : $"أضيفت في {note.CreatedAt.ToLocalTime():yyyy/MM/dd HH:mm}")</p></div>
+                    <button type="button" class="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-rose-50 hover:text-rose-600" title="حذف الملاحظة" aria-label="حذف الملاحظة" @onclick="() => DeleteNoteAsync(note.Id)"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>
+                </article>
+            }
+        </div>
+    }
+</section>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+    private readonly List<PersonalNote> notes = [];
+    private NoteDraft draft = new();
+    private string? currentUserId;
+    private bool isLoading = true;
+    private bool isSaving;
+    private bool isError;
+    private string? message;
+    private List<PersonalNote> PendingNotes => notes.Where(x => !x.IsCompleted).ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        currentUserId = (await AuthenticationStateTask).User.FindFirstValue(ClaimTypes.NameIdentifier);
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        if (string.IsNullOrWhiteSpace(currentUserId)) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        notes.Clear();
+        notes.AddRange(await db.Notes.AsNoTracking()
+            .Where(x => x.CreatedById == currentUserId)
+            .OrderBy(x => x.IsCompleted)
+            .ThenByDescending(x => x.CreatedAt)
+            .ToListAsync());
+        isLoading = false;
+    }
+
+    private async Task AddNoteAsync()
+    {
+        if (string.IsNullOrWhiteSpace(currentUserId)) return;
+        isSaving = true;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.Notes.Add(new PersonalNote { CreatedById = currentUserId, Text = draft.Text.Trim() });
+        await db.SaveChangesAsync();
+        draft = new();
+        isError = false;
+        message = "تمت إضافة الملاحظة.";
+        isSaving = false;
+        await LoadAsync();
+    }
+
+    private async Task ToggleCompletedAsync(PersonalNote note, ChangeEventArgs args)
+    {
+        if (string.IsNullOrWhiteSpace(currentUserId)) return;
+        var isCompleted = args.Value is bool checkedValue && checkedValue;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var stored = await db.Notes.SingleOrDefaultAsync(x => x.Id == note.Id && x.CreatedById == currentUserId);
+        if (stored is null) return;
+        stored.IsCompleted = isCompleted;
+        stored.CompletedAt = isCompleted ? DateTime.UtcNow : null;
+        await db.SaveChangesAsync();
+        message = isCompleted ? "تم تعليم الملاحظة كمكتملة." : "أُعيدت الملاحظة إلى قيد المتابعة.";
+        isError = false;
+        await LoadAsync();
+    }
+
+    private async Task DeleteNoteAsync(long id)
+    {
+        if (string.IsNullOrWhiteSpace(currentUserId)) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var stored = await db.Notes.SingleOrDefaultAsync(x => x.Id == id && x.CreatedById == currentUserId);
+        if (stored is null) return;
+        db.Notes.Remove(stored);
+        await db.SaveChangesAsync();
+        message = "تم حذف الملاحظة.";
+        isError = false;
+        await LoadAsync();
+    }
+
+    private sealed class NoteDraft
+    {
+        [Required(ErrorMessage = "اكتب نص الملاحظة أولاً.")]
+        [StringLength(1200, ErrorMessage = "الحد الأقصى للملاحظة هو 1200 حرف.")]
+        public string Text { get; set; } = string.Empty;
+    }
+}

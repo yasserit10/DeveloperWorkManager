@@ -1,0 +1,60 @@
+﻿@inherits LayoutComponentBase
+
+@implements IDisposable
+@inject NavigationManager NavigationManager
+
+<div class="app-shell">
+    <aside class="app-sidebar">
+        <NavMenu />
+    </aside>
+
+    <main class="app-main">
+        <header class="app-header">
+            <div>
+                <p class="m-0 text-xs font-bold text-slate-400">وحدة البرمجة</p>
+                <p class="m-0 mt-1 text-sm font-extrabold text-slate-700">لوحة المتابعة والإنتاجية</p>
+            </div>
+            <div class="flex items-center gap-3">
+                <button type="button" class="theme-toggle" data-theme-toggle onclick="window.dwmTheme?.toggle()" aria-label="تفعيل الوضع الداكن" aria-pressed="false" title="تفعيل الوضع الداكن">
+                    <i class="fa-solid fa-moon" data-theme-icon aria-hidden="true"></i>
+                    <span data-theme-label>الوضع الداكن</span>
+                </button>
+                <span class="hidden rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-500 sm:block">نظام داخلي آمن</span>
+                <span class="grid h-10 w-10 place-items-center rounded-full bg-brand-100 text-sm text-brand-600"><i class="fa-solid fa-code" aria-hidden="true"></i></span>
+            </div>
+        </header>
+
+        <article class="page-content">
+            <div @key="currentUri" class="route-transition">
+                @Body
+            </div>
+        </article>
+    </main>
+    <button type="button" class="theme-toggle theme-toggle-mobile" data-theme-toggle onclick="window.dwmTheme?.toggle()" aria-label="تفعيل الوضع الداكن" aria-pressed="false" title="تفعيل الوضع الداكن">
+        <i class="fa-solid fa-moon" data-theme-icon aria-hidden="true"></i>
+    </button>
+</div>
+
+@code {
+    private string currentUri = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        currentUri = NavigationManager.Uri;
+        NavigationManager.LocationChanged += OnLocationChanged;
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs args)
+    {
+        currentUri = args.Location;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose() => NavigationManager.LocationChanged -= OnLocationChanged;
+}
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>

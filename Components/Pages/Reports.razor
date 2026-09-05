@@ -1,0 +1,356 @@
+@page "/reports"
+@attribute [Authorize(Roles = "UnitManager,ReportViewer")]
+@rendermode InteractiveServer
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject IJSRuntime JS
+
+<PageTitle>التقارير | مدير العمل</PageTitle>
+
+<section class="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+    <div><p class="mb-2 text-sm font-extrabold text-brand-600">القياس والتقارير</p><h1 class="m-0 text-3xl font-black text-slate-900">تقرير إنجاز الفريق</h1><p class="mb-0 mt-3 text-sm leading-7 text-slate-500">راجع تحديثات الأعضاء والساعات المسجلة والمهام المكتملة خلال فترة محددة.</p></div>
+    <div class="flex flex-wrap gap-3 print-hide"><button type="button" class="btn-secondary" @onclick="PrintAsync"><i class="fa-solid fa-print" aria-hidden="true"></i> طباعة التقرير</button><a class="btn-secondary no-underline" href="@ExportUrl" data-no-page-transition><i class="fa-solid fa-file-csv" aria-hidden="true"></i> تصدير Excel (CSV)</a>@if (filter.ProjectId > 0) { <a class="btn-primary no-underline" href="@PdfUrl" target="_blank"><i class="fa-solid fa-file-pdf" aria-hidden="true"></i> تقرير PDF شامل</a> }</div>
+</section>
+
+<section class="section-card mt-6 p-5 sm:p-6">
+    <EditForm Model="filter" OnValidSubmit="LoadReport" class="flex flex-col gap-4 md:flex-row md:items-end">
+        <div><label class="form-label-modern" for="report-project">المشروع</label><AppDropdown Id="report-project" Value="@filter.ProjectId.ToString()" ValueChanged="SetProject" Options="ProjectOptions" Placeholder="اختر المشروع للتقرير" /></div>
+        <div><label class="form-label-modern" for="report-search">بحث</label><div class="input-with-icon"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><InputText id="report-search" class="form-control-modern" @bind-Value="filter.SearchText" placeholder="المهمة أو الملخص أو العضو" /></div></div>
+        <div><label class="form-label-modern" for="report-from">من تاريخ</label><AppDatePicker Id="report-from" @bind-Value="filter.From" /></div>
+        <div><label class="form-label-modern" for="report-to">إلى تاريخ</label><AppDatePicker Id="report-to" @bind-Value="filter.To" /></div>
+        <button type="submit" class="btn-primary"><i class="fa-solid fa-filter" aria-hidden="true"></i> تحديث التقرير</button>
+        <span class="text-xs font-bold text-slate-400">يُحتسب التقرير وفق تاريخ تحديثات العمل.</span>
+    </EditForm>
+</section>
+
+<section class="section-card mt-4 p-5 sm:p-6 print-hide">
+    <div class="mb-4 flex items-center gap-3"><span class="metric-icon h-10 w-10 bg-brand-50 text-brand-600"><i class="fa-solid fa-print" aria-hidden="true"></i></span><div><h2 class="m-0 text-base font-black text-slate-800">إعدادات الطباعة</h2><p class="mb-0 mt-1 text-xs font-bold text-slate-400">تستخدم الطباعة الفترة والمشروع المحددين أعلاه.</p></div></div>
+    <div class="grid gap-4 md:grid-cols-3 md:items-end">
+        <div><label class="form-label-modern" for="print-scope">نوع التقرير</label><AppDropdown Id="print-scope" Value="@printScope" ValueChanged="SetPrintScope" Options="PrintScopeOptions" /></div>
+        @if (printScope == "member")
+        {
+            <div><label class="form-label-modern" for="print-member">المبرمج</label><AppDropdown Id="print-member" Value="@printMemberId" ValueChanged="SetPrintMember" Options="PrintMemberOptions" Placeholder="اختر المبرمج" /></div>
+        }
+        <div class="text-xs font-bold leading-6 text-slate-400">ستفتح نافذة الطباعة من المتصفح؛ يمكنك اختيار الطابعة أو حفظ التقرير كـ PDF.</div>
+    </div>
+</section>
+
+<PageToast Message="@message" IsError="true" />
+
+@if (isLoading)
+{
+    <div class="mt-6 grid gap-4 sm:grid-cols-3">@for (var i = 0; i < 3; i++) { <div class="metric-card min-h-36 animate-pulse bg-slate-100"></div> }</div>
+}
+else
+{
+    <section class="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div class="metric-card"><div class="flex items-start justify-between"><div><p class="m-0 text-sm font-bold text-slate-500">تحديثات العمل</p><p class="mb-0 mt-3 text-3xl font-black text-slate-900">@updates.Count</p></div><span class="metric-icon bg-blue-50 text-brand-600"><i class="fa-solid fa-comment-dots" aria-hidden="true"></i></span></div><p class="mb-0 mt-4 text-xs font-bold text-slate-400">خلال الفترة المحددة</p></div>
+        <div class="metric-card"><div class="flex items-start justify-between"><div><p class="m-0 text-sm font-bold text-slate-500">الساعات المسجلة</p><p class="mb-0 mt-3 text-3xl font-black text-slate-900">@totalHours.ToString("0.##")</p></div><span class="metric-icon bg-violet-50 text-violet-600"><i class="fa-regular fa-clock" aria-hidden="true"></i></span></div><p class="mb-0 mt-4 text-xs font-bold text-slate-400">إجمالي الجهد الموثق</p></div>
+        <div class="metric-card"><div class="flex items-start justify-between"><div><p class="m-0 text-sm font-bold text-slate-500">مهام مكتملة</p><p class="mb-0 mt-3 text-3xl font-black text-slate-900">@completedTasks</p></div><span class="metric-icon bg-emerald-50 text-emerald-600"><i class="fa-solid fa-circle-check" aria-hidden="true"></i></span></div><p class="mb-0 mt-4 text-xs font-bold text-slate-400">اكتمل إنجازها ضمن الفترة</p></div>
+        <div class="metric-card"><div class="flex items-start justify-between"><div><p class="m-0 text-sm font-bold text-slate-500">تحتاج متابعة</p><p class="mb-0 mt-3 text-3xl font-black text-slate-900">@followUps.Count</p></div><span class="metric-icon bg-rose-50 text-rose-600"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i></span></div><p class="mb-0 mt-4 text-xs font-bold text-slate-400">متوقفة أو متأخرة أو راكدة</p></div>
+    </section>
+
+    <section class="section-card mt-6 overflow-hidden">
+        <div class="border-b border-slate-100 px-6 py-5"><h2 class="m-0 text-base font-black text-slate-800">ملخص حالات العمل</h2><p class="mb-0 mt-1 text-xs font-bold text-slate-400">الحالات المسجلة ضمن نطاق الفلترة الحالي.</p></div>
+        <div class="grid gap-px bg-slate-100 sm:grid-cols-2 xl:grid-cols-4">
+            <div class="bg-white px-6 py-5"><p class="m-0 text-xs font-extrabold text-cyan-700">أعمل الآن</p><p class="mb-0 mt-2 text-2xl font-black text-slate-800">@WorkingNowCount</p></div>
+            <div class="bg-white px-6 py-5"><p class="m-0 text-xs font-extrabold text-amber-700">متوقف</p><p class="mb-0 mt-2 text-2xl font-black text-slate-800">@PausedCount</p></div>
+            <div class="bg-white px-6 py-5"><p class="m-0 text-xs font-extrabold text-emerald-700">منتهي</p><p class="mb-0 mt-2 text-2xl font-black text-slate-800">@FinishedCount</p></div>
+            <div class="bg-white px-6 py-5"><p class="m-0 text-xs font-extrabold text-slate-500">لم يبدأ</p><p class="mb-0 mt-2 text-2xl font-black text-slate-800">@NotStartedCount</p></div>
+        </div>
+    </section>
+
+    <section class="section-card mt-6 overflow-hidden">
+        <div class="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5"><div><h2 class="m-0 text-base font-black text-slate-800">يحتاج متابعة</h2><p class="mb-0 mt-1 text-xs font-bold text-slate-400">مهام متوقفة أو متأخرة أو لم تسجل نشاطاً خلال سبعة أيام ضمن الفترة المختارة.</p></div><span class="rounded-lg bg-rose-50 px-3 py-1.5 text-xs font-extrabold text-rose-700">@followUps.Count عنصر</span></div>
+        @if (followUps.Count == 0)
+        {
+            <div class="grid min-h-36 place-items-center p-6 text-center"><div><i class="fa-solid fa-circle-check text-2xl text-emerald-500" aria-hidden="true"></i><p class="mb-0 mt-3 text-sm font-extrabold text-slate-600">لا توجد مهام تحتاج متابعة حالياً.</p></div></div>
+        }
+        else
+        {
+            <div class="divide-y divide-slate-100">@foreach (var item in followUps) { <article class="flex flex-wrap items-center gap-3 px-6 py-4"><span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl @item.IconClass"><i class="fa-solid @item.Icon" aria-hidden="true"></i></span><div class="min-w-0 flex-1"><p class="m-0 text-sm font-extrabold text-slate-700">@item.Title</p><p class="mb-0 mt-1 text-xs font-bold text-slate-500">@item.ProjectName · @item.Detail</p></div><a class="btn-secondary shrink-0 px-3 py-2 text-xs no-underline" href="tasks"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> عرض المهمة</a></article> }</div>
+        }
+    </section>
+
+    <section class="section-card mt-6 overflow-hidden">
+        <div class="border-b border-slate-100 px-6 py-5"><h2 class="m-0 text-base font-black text-slate-800">اتجاه النشاط</h2><p class="mb-0 mt-1 text-xs font-bold text-slate-400">عدد تحديثات العمل المسجلة في الأيام النشطة ضمن الفترة المحددة.</p></div>
+        @if (dailyActivity.Count == 0)
+        {
+            <p class="m-0 p-6 text-sm font-bold text-slate-400">لا توجد تحديثات لعرض الاتجاه خلال هذه الفترة.</p>
+        }
+        else
+        {
+            <div class="overflow-x-auto px-6 py-5"><div class="flex min-w-max items-end gap-3" style="height: 13rem;">@foreach (var day in dailyActivity) { <div class="flex w-12 flex-col items-center justify-end gap-2"><span class="text-xs font-black text-brand-600">@day.UpdateCount</span><div class="flex h-32 w-7 items-end rounded-t-lg bg-brand-50"><span class="w-full rounded-t-lg bg-brand-600" style="height: @day.HeightPercent%"></span></div><span dir="ltr" class="text-[10px] font-bold text-slate-400">@day.Date.ToString("MM/dd")</span></div> }</div></div>
+        }
+    </section>
+
+    <section class="section-card mt-6 overflow-hidden">
+        <div class="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5"><div><h2 class="m-0 text-base font-black text-slate-800">ملخص المشاريع</h2><p class="mb-0 mt-1 text-xs font-bold text-slate-400">وضع كل مشروع حسب الفلاتر الحالية وحالات العمل الأخيرة.</p></div><span class="rounded-lg bg-brand-50 px-3 py-1.5 text-xs font-extrabold text-brand-700">@projectSummaries.Count مشروع</span></div>
+        @if (projectSummaries.Count == 0)
+        {
+            <p class="m-0 p-6 text-sm font-bold text-slate-400">لا توجد مشاريع ضمن الفلترة المحددة.</p>
+        }
+        else
+        {
+            <div class="overflow-x-auto"><table class="update-log-table report-log-table"><thead><tr><th>المشروع</th><th>المهام</th><th>مكتملة</th><th>أعمل الآن</th><th>متوقف</th><th>تحتاج متابعة</th><th>آخر نشاط</th><th>PDF</th></tr></thead><tbody>@foreach (var project in projectSummaries) { <tr><td class="font-extrabold text-slate-700">@project.Name</td><td>@project.TaskCount</td><td class="text-emerald-700">@project.CompletedCount</td><td class="text-cyan-700">@project.WorkingNowCount</td><td class="text-amber-700">@project.PausedCount</td><td class="text-rose-700">@project.FollowUpCount</td><td dir="ltr" class="text-xs font-bold text-slate-500">@project.LastActivity.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</td><td><a class="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-brand-50 text-brand-700 no-underline" href="@PdfUrlFor(project.ProjectId)" target="_blank" title="تقرير PDF" aria-label="تقرير PDF"><i class="fa-solid fa-file-pdf" aria-hidden="true"></i></a></td></tr> }</tbody></table></div>
+        }
+    </section>
+
+    <section class="section-card mt-6 overflow-hidden">
+        <div class="border-b border-slate-100 px-6 py-5"><h2 class="m-0 text-base font-black text-slate-800">إنجاز كل عضو</h2><p class="mb-0 mt-1 text-xs font-bold text-slate-400">التحديثات والمهام التي عمل عليها كل عضو خلال الفترة.</p></div>
+        @if (employeeStats.Count == 0)
+        {
+            <div class="grid min-h-56 place-items-center p-8 text-center"><div><span class="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-slate-100 text-slate-400"><i class="fa-solid fa-chart-column text-xl" aria-hidden="true"></i></span><h3 class="mb-0 mt-4 text-base font-black text-slate-700">لا توجد بيانات لهذه الفترة</h3><p class="mb-0 mt-2 text-sm text-slate-400">ستظهر هنا تحديثات أعضاء الفريق فور تسجيلها.</p></div></div>
+        }
+        else
+        {
+            <div class="overflow-x-auto"><table class="update-log-table report-log-table"><thead><tr><th>عضو الفريق</th><th>التحديثات</th><th>المهام</th><th>الساعات</th><th>آخر تحديث</th></tr></thead><tbody>@foreach (var item in employeeStats) { <tr><td><p class="m-0 text-sm font-extrabold text-slate-700">@item.Name</p><p class="mb-0 mt-1 text-xs text-slate-400">@item.Email</p></td><td class="text-sm font-bold text-slate-600">@item.UpdateCount</td><td class="text-sm font-bold text-slate-600">@item.WorkItemCount</td><td class="text-sm font-bold text-slate-600">@item.Hours.ToString("0.##")</td><td dir="ltr" class="text-xs font-bold text-slate-500">@item.LastUpdate.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</td></tr> }</tbody></table></div>
+        }
+    </section>
+
+    <section class="section-card mt-6 overflow-hidden">
+        <div class="border-b border-slate-100 px-6 py-5"><h2 class="m-0 text-base font-black text-slate-800">سجل التحديثات</h2><p class="mb-0 mt-1 text-xs font-bold text-slate-400">آخر @updates.Count تحديث ضمن نطاق التقرير.</p></div>
+        @if (updates.Count == 0)
+        {
+            <p class="m-0 p-6 text-sm text-slate-400">لا توجد تحديثات في الفترة المحددة.</p>
+        }
+        else
+        {
+            <div class="divide-y divide-slate-100">@foreach (var update in updates) { <article class="flex gap-3 px-6 py-4"><span class="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600"><i class="fa-solid fa-clipboard-check" aria-hidden="true"></i></span><div class="min-w-0 flex-1"><p class="m-0 text-sm font-extrabold text-slate-700">@update.WorkItem.Title</p><p class="mb-0 mt-1 text-xs leading-6 text-slate-500">@update.Summary</p><p class="mb-0 mt-1 text-[11px] font-bold text-slate-400">@(string.IsNullOrWhiteSpace(update.CreatedBy.FullName) ? update.CreatedBy.Email : update.CreatedBy.FullName)@(update.HoursSpent is null ? "" : $" · {update.HoursSpent:0.##} ساعة")</p></div><span class="whitespace-nowrap text-[11px] font-bold text-slate-400">@update.CreatedAt.ToLocalTime().ToString("yyyy/MM/dd")</span></article> }</div>
+        }
+    </section>
+}
+
+<section class="print-report" dir="rtl">
+    <header class="print-report-header">
+        <div><p class="print-report-eyebrow">وحدة البرمجة</p><h1>@PrintTitle</h1><p>الفترة: @filter.From.ToString("yyyy/MM/dd") — @filter.To.ToString("yyyy/MM/dd")</p></div>
+        <div class="print-report-meta"><strong>@PrintProjectName</strong><span>تاريخ الطباعة: @DateTime.Now.ToString("yyyy/MM/dd HH:mm")</span></div>
+    </header>
+    @if (printScope == "completed")
+    {
+        <h2>المهام المكتملة</h2>
+        @if (completedWorkItems.Count == 0) { <p class="print-empty">لا توجد مهام مكتملة ضمن هذه الفترة.</p> }
+        else { <table><thead><tr><th>المهمة</th><th>المشروع</th><th>المسؤول</th><th>تاريخ الإنجاز</th></tr></thead><tbody>@foreach (var task in completedWorkItems) { <tr><td>@task.Title</td><td>@task.Project.Name</td><td>@(string.IsNullOrWhiteSpace(task.AssignedTo.FullName) ? task.AssignedTo.UserName : task.AssignedTo.FullName)</td><td dir="ltr">@task.CompletedAt?.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</td></tr> }</tbody></table> }
+    }
+    else if (printScope == "team")
+    {
+        <h2>إنجاز أعضاء الفريق</h2>
+        @if (employeeStats.Count == 0) { <p class="print-empty">لا توجد أنشطة مسجلة ضمن هذه الفترة.</p> }
+        else { <table><thead><tr><th>المبرمج</th><th>الأنشطة</th><th>المهام</th><th>الساعات</th><th>آخر نشاط</th></tr></thead><tbody>@foreach (var item in employeeStats) { <tr><td>@item.Name</td><td>@item.UpdateCount</td><td>@item.WorkItemCount</td><td>@item.Hours.ToString("0.##")</td><td dir="ltr">@item.LastUpdate.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</td></tr> }</tbody></table> }
+    }
+    else
+    {
+        <h2>إنجاز @SelectedPrintMemberName</h2>
+        @if (!SelectedPrintActivities.Any()) { <p class="print-empty">لا توجد أنشطة مسجلة لهذا المبرمج ضمن الفترة المحددة.</p> }
+        else { <table><thead><tr><th>المهمة</th><th>النشاط</th><th>الساعات</th><th>التاريخ</th></tr></thead><tbody>@foreach (var item in SelectedPrintActivities) { <tr><td>@item.WorkItem.Title</td><td>@item.Summary</td><td>@(item.HoursSpent?.ToString("0.##") ?? "—")</td><td dir="ltr">@item.CreatedAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</td></tr> }</tbody></table> }
+    }
+    <footer>تقرير مُنشأ من نظام مدير العمل</footer>
+</section>
+
+@code {
+    private readonly List<WorkUpdate> updates = [];
+    private readonly List<EmployeeStat> employeeStats = [];
+    private readonly List<WorkStateEntry> workStates = [];
+    private readonly List<FollowUpItem> followUps = [];
+    private readonly List<DailyActivity> dailyActivity = [];
+    private readonly List<ProjectSummary> projectSummaries = [];
+    private readonly List<WorkProject> projects = [];
+    private readonly List<ReportMember> printMembers = [];
+    private readonly List<WorkItem> completedWorkItems = [];
+    private ReportFilter filter = new() { From = DateOnly.FromDateTime(DateTime.Today.AddDays(-29)), To = DateOnly.FromDateTime(DateTime.Today) };
+    private bool isLoading = true;
+    private string? message;
+    private decimal totalHours;
+    private int completedTasks;
+    private int WorkingNowCount => workStates.Count(x => x.Status == WorkActivityStatus.WorkingNow);
+    private int PausedCount => workStates.Count(x => x.Status == WorkActivityStatus.Paused);
+    private int FinishedCount => workStates.Count(x => x.Status == WorkActivityStatus.Finished);
+    private int NotStartedCount => workStates.Count(x => x.Status == WorkActivityStatus.NotStarted);
+    private string printScope = "team";
+    private string printMemberId = string.Empty;
+    private string ExportUrl => $"reports/export?projectId={filter.ProjectId}&from={filter.From:yyyy-MM-dd}&to={filter.To:yyyy-MM-dd}&search={Uri.EscapeDataString(filter.SearchText)}";
+    private string PdfUrl => $"reports/project-pdf?projectId={filter.ProjectId}&from={filter.From:yyyy-MM-dd}&to={filter.To:yyyy-MM-dd}";
+    private string PdfUrlFor(int projectId) => $"reports/project-pdf?projectId={projectId}&from={filter.From:yyyy-MM-dd}&to={filter.To:yyyy-MM-dd}";
+    private IEnumerable<AppDropdownOption> ProjectOptions => [new("0", "كل المشاريع"), .. projects.Select(x => new AppDropdownOption(x.Id.ToString(), x.Name))];
+    private IEnumerable<AppDropdownOption> PrintScopeOptions => [new("team", "إنجاز كل المبرمجين"), new("member", "إنجاز مبرمج محدد"), new("completed", "المهام المكتملة")];
+    private IEnumerable<AppDropdownOption> PrintMemberOptions => printMembers.Select(x => new AppDropdownOption(x.Id, x.Name));
+    private IEnumerable<WorkUpdate> SelectedPrintActivities => updates.Where(x => x.CreatedById == printMemberId);
+    private string SelectedPrintMemberName => printMembers.FirstOrDefault(x => x.Id == printMemberId)?.Name ?? "المبرمج";
+    private string PrintProjectName => filter.ProjectId > 0 ? projects.FirstOrDefault(x => x.Id == filter.ProjectId)?.Name ?? "المشروع المحدد" : "كل المشاريع";
+    private string PrintTitle => printScope switch { "member" => "تقرير إنجاز مبرمج", "completed" => "تقرير المهام المكتملة", _ => "تقرير إنجاز الفريق" };
+
+    protected override async Task OnInitializedAsync() => await LoadReport();
+
+    private async Task LoadReport()
+    {
+        if (filter.To < filter.From) { message = "يجب أن يكون تاريخ النهاية بعد أو مساوياً لتاريخ البداية."; return; }
+        isLoading = true;
+        message = null;
+        var from = filter.From.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+        var to = filter.To.AddDays(1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+        await using var db = await DbFactory.CreateDbContextAsync();
+        projects.Clear();
+        projects.AddRange(await db.Projects.AsNoTracking().Where(x => !x.IsArchived).OrderBy(x => x.Name).ToListAsync());
+        printMembers.Clear();
+        var programmerRoleId = await db.Roles.AsNoTracking().Where(x => x.Name == "Programmer").Select(x => x.Id).SingleOrDefaultAsync();
+        if (!string.IsNullOrWhiteSpace(programmerRoleId))
+        {
+            printMembers.AddRange(await (from userRole in db.UserRoles.AsNoTracking()
+                                         join user in db.Users.AsNoTracking() on userRole.UserId equals user.Id
+                                         where userRole.RoleId == programmerRoleId
+                                         orderby user.FullName, user.UserName
+                                         select new ReportMember(user.Id, string.IsNullOrWhiteSpace(user.FullName) ? user.UserName ?? "مستخدم" : user.FullName)).ToListAsync());
+        }
+        updates.Clear();
+        var updatesQuery = db.WorkUpdates.AsNoTracking().Include(x => x.WorkItem).Include(x => x.CreatedBy).Where(x => x.CreatedAt >= from && x.CreatedAt < to);
+        if (filter.ProjectId > 0) updatesQuery = updatesQuery.Where(x => x.WorkItem.ProjectId == filter.ProjectId);
+        if (!string.IsNullOrWhiteSpace(filter.SearchText))
+        {
+            var term = filter.SearchText.Trim();
+            updatesQuery = updatesQuery.Where(x => x.WorkItem.Title.Contains(term) || x.Summary.Contains(term) || x.CreatedBy.FullName.Contains(term));
+        }
+        updates.AddRange(await updatesQuery.OrderByDescending(x => x.CreatedAt).ToListAsync());
+        totalHours = updates.Sum(x => x.HoursSpent ?? 0);
+        var tasksQuery = db.WorkItems.AsNoTracking().Include(x => x.Project).Include(x => x.AssignedTo).Where(x => x.CreatedAt < to);
+        if (filter.ProjectId > 0) tasksQuery = tasksQuery.Where(x => x.ProjectId == filter.ProjectId);
+        if (!string.IsNullOrWhiteSpace(filter.SearchText))
+        {
+            var term = filter.SearchText.Trim();
+            tasksQuery = tasksQuery.Where(x => x.Title.Contains(term) || (x.Description ?? string.Empty).Contains(term) || x.AssignedTo.FullName.Contains(term));
+        }
+        var tasks = await tasksQuery.ToListAsync();
+        completedTasks = tasks.Count(x => x.CompletedAt >= from && x.CompletedAt < to);
+        completedWorkItems.Clear();
+        completedWorkItems.AddRange(tasks.Where(x => x.CompletedAt >= from && x.CompletedAt < to).OrderByDescending(x => x.CompletedAt));
+        var taskIds = tasks.Select(x => x.Id).ToList();
+        var latestUpdateByTask = taskIds.Count == 0
+            ? new Dictionary<int, DateTime>()
+            : await db.WorkUpdates.AsNoTracking()
+                .Where(x => taskIds.Contains(x.WorkItemId))
+                .GroupBy(x => x.WorkItemId)
+                .Select(group => new { WorkItemId = group.Key, LastUpdate = group.Max(x => x.CreatedAt) })
+                .ToDictionaryAsync(x => x.WorkItemId, x => x.LastUpdate);
+        var latestStates = taskIds.Count == 0
+            ? []
+            : await db.WorkStateEntries.AsNoTracking()
+                .Where(x => taskIds.Contains(x.WorkItemId))
+                .OrderByDescending(x => x.CreatedAt)
+                .ToListAsync();
+        var latestStateByTask = latestStates
+            .GroupBy(x => x.WorkItemId)
+            .ToDictionary(group => group.Key, group => group.First().Status);
+
+        workStates.Clear();
+        var statesQuery = db.WorkStateEntries.AsNoTracking().Include(x => x.WorkItem).Include(x => x.CreatedBy).Where(x => x.CreatedAt >= from && x.CreatedAt < to);
+        if (filter.ProjectId > 0) statesQuery = statesQuery.Where(x => x.ProjectId == filter.ProjectId);
+        if (!string.IsNullOrWhiteSpace(filter.SearchText))
+        {
+            var term = filter.SearchText.Trim();
+            statesQuery = statesQuery.Where(x => x.WorkItem.Title.Contains(term) || x.CreatedBy.FullName.Contains(term));
+        }
+        workStates.AddRange(await statesQuery.OrderByDescending(x => x.CreatedAt).ToListAsync());
+
+        updates.AddRange(workStates.Select(state => new WorkUpdate
+        {
+            WorkItemId = state.WorkItemId,
+            CreatedById = state.CreatedById,
+            WorkItem = state.WorkItem,
+            CreatedBy = state.CreatedBy,
+            Summary = StateActivitySummary(state.Status),
+            CreatedAt = state.CreatedAt
+        }));
+        updates.Sort((left, right) => right.CreatedAt.CompareTo(left.CreatedAt));
+
+        dailyActivity.Clear();
+        var activityGroups = updates
+            .GroupBy(x => DateOnly.FromDateTime(x.CreatedAt.ToLocalTime()))
+            .OrderBy(x => x.Key)
+            .ToList();
+        var maxDailyUpdates = activityGroups.Count == 0 ? 0 : activityGroups.Max(x => x.Count());
+        dailyActivity.AddRange(activityGroups.Select(group => new DailyActivity(
+            group.Key,
+            group.Count(),
+            group.Sum(x => x.HoursSpent ?? 0),
+            maxDailyUpdates == 0 ? 0 : Math.Max(12, group.Count() * 100 / maxDailyUpdates))));
+
+        followUps.Clear();
+        var referenceDate = filter.To;
+        var staleBefore = referenceDate.AddDays(-7);
+        foreach (var task in tasks)
+        {
+            if (task.Status == WorkStatus.Completed) continue;
+            if (task.Status == WorkStatus.Blocked)
+            {
+                followUps.Add(new FollowUpItem(task.Id, task.Title, task.Project.Name, string.IsNullOrWhiteSpace(task.BlockerReason) ? "المهمة متوقفة وتحتاج إجراءً." : task.BlockerReason, "fa-triangle-exclamation", "bg-rose-50 text-rose-600"));
+                continue;
+            }
+            if (task.DueDate.HasValue && task.DueDate.Value < referenceDate)
+            {
+                followUps.Add(new FollowUpItem(task.Id, task.Title, task.Project.Name, $"تجاوزت الموعد المحدد في {task.DueDate:yyyy/MM/dd}.", "fa-calendar-xmark", "bg-amber-50 text-amber-600"));
+                continue;
+            }
+            var lastActivity = latestUpdateByTask.TryGetValue(task.Id, out var lastUpdate) ? lastUpdate : task.CreatedAt;
+            var lastState = latestStates.FirstOrDefault(x => x.WorkItemId == task.Id)?.CreatedAt;
+            if (lastState.HasValue && lastState.Value > lastActivity) lastActivity = lastState.Value;
+            var lastActivityDate = DateOnly.FromDateTime(lastActivity.ToLocalTime());
+            if (lastActivityDate <= staleBefore)
+            {
+                followUps.Add(new FollowUpItem(task.Id, task.Title, task.Project.Name, $"لا يوجد تحديث منذ {lastActivityDate:yyyy/MM/dd}.", "fa-clock", "bg-violet-50 text-violet-600"));
+            }
+        }
+        followUps.Sort((left, right) => string.Compare(left.ProjectName, right.ProjectName, StringComparison.CurrentCulture));
+
+        projectSummaries.Clear();
+        var visibleProjects = filter.ProjectId > 0 ? projects.Where(x => x.Id == filter.ProjectId) : projects;
+        foreach (var project in visibleProjects)
+        {
+            var projectTasks = tasks.Where(x => x.ProjectId == project.Id).ToList();
+            var projectLastActivity = projectTasks.Count == 0
+                ? project.CreatedAt
+                : projectTasks.Max(task =>
+                {
+                    var lastActivity = latestUpdateByTask.TryGetValue(task.Id, out var lastUpdate) ? lastUpdate : task.CreatedAt;
+                    var lastState = latestStates.FirstOrDefault(x => x.WorkItemId == task.Id)?.CreatedAt;
+                    return lastState.HasValue && lastState.Value > lastActivity ? lastState.Value : lastActivity;
+                });
+            projectSummaries.Add(new ProjectSummary(
+                project.Id,
+                project.Name,
+                projectTasks.Count,
+                projectTasks.Count(x => x.Status == WorkStatus.Completed),
+                projectTasks.Count(x => latestStateByTask.TryGetValue(x.Id, out var status) && status == WorkActivityStatus.WorkingNow),
+                projectTasks.Count(x => latestStateByTask.TryGetValue(x.Id, out var status) && status == WorkActivityStatus.Paused),
+                followUps.Count(x => x.WorkItemId > 0 && projectTasks.Any(task => task.Id == x.WorkItemId)),
+                projectLastActivity));
+        }
+
+        employeeStats.Clear();
+        employeeStats.AddRange(updates.GroupBy(x => new { x.CreatedById, x.CreatedBy.FullName, x.CreatedBy.Email }).Select(group => new EmployeeStat { Name = string.IsNullOrWhiteSpace(group.Key.FullName) ? group.Key.Email ?? "مستخدم" : group.Key.FullName, Email = group.Key.Email ?? string.Empty, UpdateCount = group.Count(), WorkItemCount = group.Select(x => x.WorkItemId).Distinct().Count(), Hours = group.Sum(x => x.HoursSpent ?? 0), LastUpdate = group.Max(x => x.CreatedAt) }).OrderByDescending(x => x.Hours).ThenByDescending(x => x.UpdateCount));
+        isLoading = false;
+    }
+
+    private void SetProject(string value) => filter.ProjectId = int.TryParse(value, out var projectId) ? projectId : 0;
+    private void SetPrintScope(string value) { printScope = value; if (printScope != "member") printMemberId = string.Empty; }
+    private void SetPrintMember(string value) => printMemberId = value;
+    private async Task PrintAsync()
+    {
+        if (printScope == "member" && string.IsNullOrWhiteSpace(printMemberId)) { message = "اختر المبرمج قبل الطباعة."; return; }
+        message = null;
+        await JS.InvokeVoidAsync("window.print");
+    }
+
+    private static string StateActivitySummary(WorkActivityStatus status) => status switch
+    {
+        WorkActivityStatus.WorkingNow => "تم تغيير حالة العمل إلى: أعمل الآن.",
+        WorkActivityStatus.Paused => "تم تغيير حالة العمل إلى: متوقف.",
+        WorkActivityStatus.Finished => "تم تغيير حالة العمل إلى: منتهي.",
+        WorkActivityStatus.NotStarted => "تم تغيير حالة العمل إلى: لم يبدأ.",
+        _ => "تم تغيير حالة العمل."
+    };
+
+    private sealed class ReportFilter { public int ProjectId { get; set; } public string SearchText { get; set; } = string.Empty; public DateOnly From { get; set; } public DateOnly To { get; set; } }
+    private sealed class EmployeeStat { public string Name { get; set; } = string.Empty; public string Email { get; set; } = string.Empty; public int UpdateCount { get; set; } public int WorkItemCount { get; set; } public decimal Hours { get; set; } public DateTime LastUpdate { get; set; } }
+    private sealed record FollowUpItem(int WorkItemId, string Title, string ProjectName, string Detail, string Icon, string IconClass);
+    private sealed record DailyActivity(DateOnly Date, int UpdateCount, decimal Hours, int HeightPercent);
+    private sealed record ProjectSummary(int ProjectId, string Name, int TaskCount, int CompletedCount, int WorkingNowCount, int PausedCount, int FollowUpCount, DateTime LastActivity);
+    private sealed record ReportMember(string Id, string Name);
+}

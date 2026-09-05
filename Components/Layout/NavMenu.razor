@@ -1,0 +1,141 @@
+﻿@implements IDisposable
+
+@inject NavigationManager NavigationManager
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<AuthorizeView>
+    <Authorized Context="auth">
+        <div class="flex items-center gap-3 px-2">
+            <div class="brand-mark brand-loader-mark" title="@RoleLabel(auth.User)" aria-label="@RoleLabel(auth.User)">
+                <div class="banter-loader" aria-hidden="true">
+                    <span class="banter-loader__box"></span><span class="banter-loader__box"></span><span class="banter-loader__box"></span>
+                    <span class="banter-loader__box"></span><span class="banter-loader__box"></span><span class="banter-loader__box"></span>
+                    <span class="banter-loader__box"></span><span class="banter-loader__box"></span><span class="banter-loader__box"></span>
+                </div>
+            </div>
+            <div class="min-w-0 flex-1">
+                <a class="text-sm font-black text-slate-800 no-underline" href="">@DisplayName(auth.User)</a>
+                <p class="m-0 mt-1 text-[11px] font-bold text-slate-400">@RoleLabel(auth.User)</p>
+            </div>
+            <NotificationCenter />
+        </div>
+    </Authorized>
+    <NotAuthorized>
+        <div class="flex items-center gap-3 px-2">
+            <div class="brand-mark brand-loader-mark" title="مدير العمل" aria-label="مدير العمل">
+                <div class="banter-loader" aria-hidden="true">
+                    <span class="banter-loader__box"></span><span class="banter-loader__box"></span><span class="banter-loader__box"></span>
+                    <span class="banter-loader__box"></span><span class="banter-loader__box"></span><span class="banter-loader__box"></span>
+                    <span class="banter-loader__box"></span><span class="banter-loader__box"></span><span class="banter-loader__box"></span>
+                </div>
+            </div>
+            <div><a class="text-sm font-black text-slate-800 no-underline" href="">مدير العمل</a><p class="m-0 mt-1 text-[11px] font-bold text-slate-400">وحدة البرمجة</p></div>
+        </div>
+    </NotAuthorized>
+</AuthorizeView>
+
+<nav class="mt-8 flex flex-1 flex-col" data-sidebar-navigation aria-label="التنقل الرئيسي" aria-describedby="sidebar-keyboard-help">
+    <span id="sidebar-keyboard-help" class="sr-only">استخدم سهم الأعلى أو الأسفل للانتقال مباشرة بين صفحات النظام.</span>
+    <AuthorizeView Roles="UnitManager,ReportViewer">
+        <p class="nav-group-label">نظرة عامة</p>
+        <NavLink class="nav-link" ActiveClass="active" href="" Match="NavLinkMatch.All">
+            <span class="nav-icon"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i></span> لوحة التحكم
+        </NavLink>
+    </AuthorizeView>
+
+    <p class="nav-group-label">إدارة العمل</p>
+    <AuthorizeView Roles="UnitManager">
+        <NavLink class="nav-link" ActiveClass="active" href="projects">
+            <span class="nav-icon"><i class="fa-solid fa-folder-tree" aria-hidden="true"></i></span> المشاريع
+        </NavLink>
+    </AuthorizeView>
+    <NavLink class="nav-link" ActiveClass="active" href="updates">
+        <span class="nav-icon"><i class="fa-solid fa-bullseye" aria-hidden="true"></i></span> على ماذا أعمل
+    </NavLink>
+    <NavLink class="nav-link" ActiveClass="active" href="tasks">
+        <span class="nav-icon"><i class="fa-solid fa-list-check" aria-hidden="true"></i></span> المهام
+    </NavLink>
+    <NavLink class="nav-link" ActiveClass="active" href="achievements">
+        <span class="nav-icon"><i class="fa-solid fa-trophy" aria-hidden="true"></i></span> المنجزات
+    </NavLink>
+    <NavLink class="nav-link" ActiveClass="active" href="notes">
+        <span class="nav-icon"><i class="fa-solid fa-note-sticky" aria-hidden="true"></i></span> الملاحظات
+    </NavLink>
+    <AuthorizeView Roles="UnitManager">
+        <NavLink class="nav-link" ActiveClass="active" href="team">
+            <span class="nav-icon"><i class="fa-solid fa-users-gear" aria-hidden="true"></i></span> فريق البرمجة
+        </NavLink>
+        <NavLink class="nav-link" ActiveClass="active" href="archive">
+            <span class="nav-icon"><i class="fa-solid fa-box-archive" aria-hidden="true"></i></span> سجل الأرشيف
+        </NavLink>
+    </AuthorizeView>
+    <AuthorizeView Roles="UnitManager,ReportViewer">
+        <NavLink class="nav-link" ActiveClass="active" href="reports">
+            <span class="nav-icon"><i class="fa-solid fa-chart-line" aria-hidden="true"></i></span> التقارير
+        </NavLink>
+    </AuthorizeView>
+
+    <div class="mt-auto border-t border-slate-100 pt-4">
+        <AuthorizeView>
+            <Authorized>
+                <NavLink class="nav-link" ActiveClass="active" href="Account/Manage">
+                    <span class="nav-icon"><i class="fa-solid fa-user-gear" aria-hidden="true"></i></span> @context.User.Identity?.Name
+                </NavLink>
+                <form action="Account/Logout" method="post">
+                    <AntiforgeryToken />
+                    <input type="hidden" name="ReturnUrl" value="@currentUrl" />
+                    <button type="submit" class="nav-link w-full text-right">
+                        <span class="nav-icon"><i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i></span> تسجيل الخروج
+                    </button>
+                </form>
+            </Authorized>
+            <NotAuthorized>
+                <NavLink class="btn-primary w-full" href="Account/Login">تسجيل الدخول</NavLink>
+            </NotAuthorized>
+        </AuthorizeView>
+    </div>
+</nav>
+
+@code {
+    private string? currentUrl;
+    private string? fullName;
+
+    private string DisplayName(System.Security.Claims.ClaimsPrincipal user) =>
+        string.IsNullOrWhiteSpace(fullName) ? user.Identity?.Name ?? "مستخدم النظام" : fullName;
+
+    private static string RoleLabel(System.Security.Claims.ClaimsPrincipal user) =>
+        user.IsInRole("UnitManager") ? "مسؤول الوحدة" :
+        user.IsInRole("Programmer") ? "مبرمج" :
+        user.IsInRole("ReportViewer") ? "قارئ التقارير" : "مستخدم النظام";
+
+    protected override async Task OnInitializedAsync()
+    {
+        currentUrl = NavigationManager.ToBaseRelativePath(NavigationManager.Uri);
+        NavigationManager.LocationChanged += OnLocationChanged;
+
+        var user = (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User;
+        var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (!string.IsNullOrWhiteSpace(userId))
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            fullName = await db.Users
+                .AsNoTracking()
+                .Where(x => x.Id == userId)
+                .Select(x => x.FullName)
+                .FirstOrDefaultAsync();
+        }
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        currentUrl = NavigationManager.ToBaseRelativePath(e.Location);
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        NavigationManager.LocationChanged -= OnLocationChanged;
+    }
+}
+

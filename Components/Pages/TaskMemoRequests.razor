@@ -1,0 +1,207 @@
+@using System.ComponentModel.DataAnnotations
+@using System.Security.Claims
+@using SixLabors.ImageSharp
+@using SixLabors.ImageSharp.Formats.Webp
+@using SixLabors.ImageSharp.Processing
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject IConfiguration Configuration
+
+<PageToast Message="@message" IsError="@isError" />
+
+@if (isManager && showMemoForm)
+{
+    <section class="section-card form-reveal mt-6 p-6 sm:p-7">
+        <div class="mb-6 flex items-start justify-between gap-4"><div class="flex items-start gap-3"><span class="metric-icon h-10 w-10 shrink-0 bg-brand-50 text-brand-600"><i class="fa-solid fa-file-circle-plus" aria-hidden="true"></i></span><div><h2 class="m-0 text-lg font-black text-slate-800">إضافة طلب مذكرة</h2><p class="mb-0 mt-1 text-xs font-bold leading-6 text-slate-400">ترفع الصورة مرة واحدة، ثم تُصغّر وتُحفظ بصيغة WebP لتكون أسرع وأقل حجمًا.</p></div></div><button type="button" class="shrink-0 text-slate-400 transition hover:text-slate-700" title="إغلاق النموذج" @onclick="CloseMemoForm"><i class="fa-solid fa-xmark text-lg" aria-hidden="true"></i></button></div>
+        <EditForm Model="draft" OnValidSubmit="SaveAsync" class="grid gap-5 md:grid-cols-2">
+            <DataAnnotationsValidator />
+            <div><label class="form-label-modern" for="memo-number">رقم المذكرة</label><InputText id="memo-number" class="form-control-modern pr-4" @bind-Value="draft.MemoNumber" placeholder="مثال: 1234/و" /><ValidationMessage For="() => draft.MemoNumber" class="validation-modern" /></div>
+            <div><label class="form-label-modern" for="memo-date">تاريخ المذكرة</label><AppDatePicker Id="memo-date" @bind-Value="draft.MemoDate" /></div>
+            <div><label class="form-label-modern" for="memo-assignee">المبرمج المستلم</label><AppDropdown Id="memo-assignee" @bind-Value="draft.AssignedToId" Options="EmployeeOptions" Placeholder="اختر المبرمج" /><ValidationMessage For="() => draft.AssignedToId" class="validation-modern" /></div>
+            <div><label class="form-label-modern" for="memo-image">صورة المذكرة</label><InputFile id="memo-image" class="memo-image-input" OnChange="SelectImageAsync" accept="image/jpeg,image/png,image/webp" /><p class="mb-0 mt-2 text-xs font-bold text-slate-400">JPG أو PNG أو WebP، بحد أقصى 10 MB.</p>@if (!string.IsNullOrWhiteSpace(selectedImageName)) { <p class="mb-0 mt-2 text-xs font-extrabold text-brand-600"><i class="fa-solid fa-image ml-1"></i>@selectedImageName</p> }</div>
+            <div class="flex gap-3 md:col-span-2"><button type="submit" class="btn-primary" disabled="@isSaving"><i class="fa-solid @(isSaving ? "fa-spinner fa-spin" : "fa-paper-plane")" aria-hidden="true"></i>@(isSaving ? "جارٍ الحفظ..." : "إرسال طلب المذكرة")</button></div>
+        </EditForm>
+    </section>
+}
+
+@if (ShowFilters)
+{
+    <div class="form-reveal"><ListSearchFilters @bind-SearchText="searchText" @bind-FromDate="fromDate" @bind-ToDate="toDate" IdPrefix="memos-list" SearchPlaceholder="ابحث برقم المذكرة أو اسم المبرمج" /></div>
+}
+
+<section class="section-card mt-6 overflow-hidden">
+    <div class="flex items-center justify-between border-b border-slate-100 px-6 py-5"><div><h2 class="m-0 text-base font-black text-slate-800">@(isManager ? "سجل طلبات المذكرات" : "المذكرات الواردة")</h2><p class="mb-0 mt-1 text-xs font-bold text-slate-400">@FilteredMemos.Count مذكرة مرتبة من الأحدث إلى الأقدم.</p></div><span class="metric-icon h-10 w-10 bg-brand-50 text-brand-600"><i class="fa-regular fa-calendar-check" aria-hidden="true"></i></span></div>
+    @if (FilteredMemos.Count == 0)
+    {
+        <div class="empty-state"><div><i class="fa-solid fa-file-circle-plus text-3xl text-brand-600"></i><p class="mt-4 text-sm font-bold text-slate-400">لا توجد طلبات مذكرات حالياً.</p></div></div>
+    }
+    else
+    {
+        <div class="overflow-x-auto"><table class="update-log-table memo-log-table"><thead><tr><th class="w-[25%]">رقم المذكرة</th><th class="w-[20%]">تاريخ المذكرة</th>@if (isManager) { <th class="w-[25%]">المبرمج المستلم</th> }<th class="@(isManager ? "w-[30%]" : "w-[55%]")">المرفق</th></tr></thead><tbody>@foreach (var memo in FilteredMemos) { <tr><td class="font-black text-slate-800">@memo.MemoNumber</td><td dir="ltr" class="text-right text-slate-500">@memo.MemoDate.ToString("yyyy/MM/dd")</td>@if (isManager) { <td>@DisplayName(memo.AssignedTo)</td> }<td><a class="inline-flex items-center gap-2 rounded-lg bg-brand-50 px-3 py-1.5 text-xs font-extrabold text-brand-700 no-underline transition hover:bg-brand-100" href="@ImageUrl(memo.Id)" target="_blank" rel="noopener"><i class="fa-solid fa-image" aria-hidden="true"></i>عرض صورة المذكرة</a></td></tr>}</tbody></table></div>
+    }
+</section>
+
+@code {
+    private const long MaxImageSize = 10 * 1024 * 1024;
+    [Parameter] public int OpenFormRequest { get; set; }
+    [Parameter] public bool ShowFilters { get; set; }
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+    private readonly List<ApplicationUser> employees = [];
+    private readonly List<MemoRequest> memos = [];
+    private MemoDraft draft = new();
+    private IBrowserFile? selectedImage;
+    private string? selectedImageName;
+    private string? currentUserId;
+    private bool isManager;
+    private bool showMemoForm;
+    private int handledOpenFormRequest;
+    private bool isSaving;
+    private bool isError;
+    private string? message;
+    private string searchText = string.Empty;
+    private DateOnly? fromDate;
+    private DateOnly? toDate;
+
+    private List<MemoRequest> FilteredMemos => memos.Where(x =>
+        (string.IsNullOrWhiteSpace(searchText) || x.MemoNumber.Contains(searchText, StringComparison.OrdinalIgnoreCase) || DisplayName(x.AssignedTo).Contains(searchText, StringComparison.OrdinalIgnoreCase)) &&
+        (!fromDate.HasValue || x.MemoDate >= fromDate.Value) &&
+        (!toDate.HasValue || x.MemoDate <= toDate.Value)).ToList();
+
+    private IEnumerable<AppDropdownOption> EmployeeOptions => [new(string.Empty, "اختر المبرمج"), .. employees.Select(x => new AppDropdownOption(x.Id, DisplayName(x)))];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = (await AuthenticationStateTask).User;
+        currentUserId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        isManager = user.IsInRole("UnitManager");
+        await LoadAsync();
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (OpenFormRequest != 0 && OpenFormRequest != handledOpenFormRequest)
+        {
+            handledOpenFormRequest = OpenFormRequest;
+            OpenMemoForm();
+        }
+        if (ShowFilters) showMemoForm = false;
+    }
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        employees.Clear();
+        if (isManager) employees.AddRange(await db.Users.AsNoTracking().Where(x => !x.IsArchived).OrderBy(x => x.FullName).ToListAsync());
+
+        memos.Clear();
+        var query = db.MemoRequests.AsNoTracking().Include(x => x.AssignedTo).AsQueryable();
+        if (!isManager) query = query.Where(x => x.AssignedToId == currentUserId);
+        memos.AddRange(await query.OrderByDescending(x => x.MemoDate).ThenByDescending(x => x.CreatedAt).Take(100).ToListAsync());
+    }
+
+    private void OpenMemoForm()
+    {
+        draft = new();
+        selectedImage = null;
+        selectedImageName = null;
+        message = null;
+        isError = false;
+        showMemoForm = true;
+    }
+
+    private void CloseMemoForm() => showMemoForm = false;
+
+    private Task SelectImageAsync(InputFileChangeEventArgs args)
+    {
+        selectedImage = args.File;
+        selectedImageName = args.File.Name;
+        isError = false;
+        message = null;
+        return Task.CompletedTask;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (!isManager || string.IsNullOrWhiteSpace(currentUserId)) return;
+        if (selectedImage is null)
+        {
+            isError = true;
+            message = "أرفق صورة المذكرة أولاً.";
+            return;
+        }
+        if (selectedImage.Size == 0 || selectedImage.Size > MaxImageSize)
+        {
+            isError = true;
+            message = "حجم الصورة يجب أن يكون أكبر من صفر ولا يتجاوز 10 MB.";
+            return;
+        }
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var assigneeExists = await db.Users.AnyAsync(x => x.Id == draft.AssignedToId && !x.IsArchived);
+        if (!assigneeExists)
+        {
+            isError = true;
+            message = "المبرمج المحدد لم يعد متاحاً. حدّث الصفحة ثم حاول مرة أخرى.";
+            await LoadAsync();
+            return;
+        }
+
+        isSaving = true;
+        var fileName = $"{Guid.NewGuid():N}.webp";
+        var storagePath = Configuration["Storage:MemoImagesPath"] ?? Path.Combine(AppContext.BaseDirectory, "App_Data", "memo-images");
+        var filePath = Path.Combine(storagePath, fileName);
+        try
+        {
+            Directory.CreateDirectory(storagePath);
+            await using var input = selectedImage.OpenReadStream(MaxImageSize);
+            using var image = await Image.LoadAsync(input);
+            if ((long)image.Width * image.Height > 30_000_000) throw new InvalidOperationException("دقة الصورة كبيرة جداً.");
+
+            image.Mutate(context => context.AutoOrient().Resize(new ResizeOptions { Size = new Size(1600, 1600), Mode = ResizeMode.Max }));
+            await image.SaveAsWebpAsync(filePath, new WebpEncoder { Quality = 78 });
+
+            db.MemoRequests.Add(new MemoRequest { MemoNumber = draft.MemoNumber.Trim(), MemoDate = draft.MemoDate, AssignedToId = draft.AssignedToId, CreatedById = currentUserId, ImageFileName = fileName });
+            db.Notifications.Add(new SystemNotification
+            {
+                UserId = draft.AssignedToId,
+                Type = "Memo",
+                Title = "مذكرة واردة جديدة",
+                Message = $"تم إرسال المذكرة رقم «{draft.MemoNumber.Trim()}» بتاريخ {draft.MemoDate:yyyy/MM/dd} إليك.",
+                TargetUrl = "/tasks"
+            });
+            await db.SaveChangesAsync();
+
+            var compressedSize = new FileInfo(filePath).Length;
+            draft = new();
+            selectedImage = null;
+            selectedImageName = null;
+            showMemoForm = false;
+            isError = false;
+            message = $"تم إرسال طلب المذكرة وضغط الصورة إلى {Math.Max(1, compressedSize / 1024)} KB.";
+            await LoadAsync();
+        }
+        catch (Exception)
+        {
+            if (File.Exists(filePath)) File.Delete(filePath);
+            isError = true;
+            message = "تعذر معالجة الصورة. تأكد من أنها صورة صحيحة بصيغة JPG أو PNG أو WebP.";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private static string DisplayName(ApplicationUser user) => string.IsNullOrWhiteSpace(user.FullName) ? user.UserName ?? "مستخدم" : user.FullName;
+    private static string ImageUrl(int id) => $"/memo-requests/{id}/image";
+
+    private sealed class MemoDraft
+    {
+        [Required(ErrorMessage = "رقم المذكرة مطلوب."), StringLength(100)]
+        public string MemoNumber { get; set; } = string.Empty;
+
+        public DateOnly MemoDate { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+
+        [Required(ErrorMessage = "اختر المبرمج المستلم.")]
+        public string AssignedToId { get; set; } = string.Empty;
+    }
+}

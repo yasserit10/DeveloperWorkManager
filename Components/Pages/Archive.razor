@@ -1,0 +1,43 @@
+@page "/archive"
+@attribute [Authorize(Roles = "UnitManager")]
+@rendermode InteractiveServer
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+
+<PageTitle>سجل الأرشيف | مدير العمل</PageTitle>
+
+<section><p class="page-eyebrow">السجل المحفوظ</p><h1 class="m-0 text-3xl font-black text-slate-900">سجل الأرشيف</h1><p class="mb-0 mt-3 text-sm leading-7 text-slate-500">العناصر المؤرشفة لا تظهر في النظام التشغيلي، وتبقى هنا مع إمكانية الاستعادة دون فقدان السجل.</p></section>
+
+<PageToast Message="@message" />
+
+<ListSearchFilters @bind-SearchText="searchText" @bind-FromDate="fromDate" @bind-ToDate="toDate" IdPrefix="archive-list" SearchPlaceholder="ابحث باسم المشروع أو العضو أو اسم المستخدم" />
+
+<section class="mt-6 grid gap-6 lg:grid-cols-2">
+    <div class="section-card overflow-hidden"><div class="border-b border-slate-100 px-6 py-5"><h2 class="m-0 text-base font-black text-slate-800">المشاريع المؤرشفة</h2></div>
+        @if (FilteredProjects.Count == 0) { <p class="m-0 p-6 text-sm font-bold text-slate-400">لا توجد مشاريع مؤرشفة.</p> }
+        else { <div class="divide-y divide-slate-100">@foreach (var project in FilteredProjects) { <article class="flex items-center justify-between gap-3 px-6 py-4"><div><p class="m-0 text-sm font-black text-slate-800">@project.Name</p><p class="mb-0 mt-1 text-xs font-bold text-slate-400">@(string.IsNullOrWhiteSpace(project.ProjectUrl) ? "بدون رابط" : project.ProjectUrl) · @DeveloperNames(project)</p></div><button class="btn-secondary px-3 py-2 text-xs" @onclick="() => RestoreProjectAsync(project.Id)">استعادة</button></article>}</div> }
+    </div>
+    <div class="section-card overflow-hidden"><div class="border-b border-slate-100 px-6 py-5"><h2 class="m-0 text-base font-black text-slate-800">الأعضاء المؤرشفون</h2></div>
+        @if (FilteredMembers.Count == 0) { <p class="m-0 p-6 text-sm font-bold text-slate-400">لا توجد حسابات مؤرشفة.</p> }
+        else { <div class="divide-y divide-slate-100">@foreach (var member in FilteredMembers) { <article class="flex items-center justify-between gap-3 px-6 py-4"><div><p class="m-0 text-sm font-black text-slate-800">@member.FullName</p><p class="mb-0 mt-1 text-xs font-bold text-slate-400">@@@member.UserName</p></div><button class="btn-secondary px-3 py-2 text-xs" @onclick="() => RestoreMemberAsync(member.Id)">استعادة</button></article>}</div> }
+    </div>
+</section>
+
+@code {
+    private readonly List<WorkProject> projects = []; private readonly List<ApplicationUser> members = []; private string? message;
+    private string searchText = string.Empty;
+    private DateOnly? fromDate;
+    private DateOnly? toDate;
+    private List<WorkProject> FilteredProjects => projects.Where(x =>
+        (string.IsNullOrWhiteSpace(searchText) || x.Name.Contains(searchText, StringComparison.OrdinalIgnoreCase) || (x.ProjectUrl?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false)) &&
+        (!fromDate.HasValue || DateOnly.FromDateTime(x.CreatedAt) >= fromDate.Value) &&
+        (!toDate.HasValue || DateOnly.FromDateTime(x.CreatedAt) <= toDate.Value)).ToList();
+    private List<ApplicationUser> FilteredMembers => members.Where(x =>
+        (string.IsNullOrWhiteSpace(searchText) || x.FullName.Contains(searchText, StringComparison.OrdinalIgnoreCase) || (x.UserName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false)) &&
+        (!fromDate.HasValue || DateOnly.FromDateTime(x.CreatedAt) >= fromDate.Value) &&
+        (!toDate.HasValue || DateOnly.FromDateTime(x.CreatedAt) <= toDate.Value)).ToList();
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+    private async Task LoadAsync() { await using var db = await DbFactory.CreateDbContextAsync(); projects.Clear(); projects.AddRange(await db.Projects.AsNoTracking().Include(x => x.AssignedDeveloper).Include(x => x.Developers).ThenInclude(x => x.Developer).Where(x => x.IsArchived).OrderByDescending(x => x.CreatedAt).ToListAsync()); members.Clear(); members.AddRange(await db.Users.AsNoTracking().Where(x => x.IsArchived).OrderBy(x => x.FullName).ToListAsync()); }
+    private static string DeveloperNames(WorkProject project) => project.Developers.Count == 0 ? project.AssignedDeveloper.FullName : string.Join("، ", project.Developers.OrderBy(x => x.Developer.FullName).Select(x => string.IsNullOrWhiteSpace(x.Developer.FullName) ? x.Developer.UserName : x.Developer.FullName));
+    private async Task RestoreProjectAsync(int id) { await using var db = await DbFactory.CreateDbContextAsync(); var project = await db.Projects.FindAsync(id); if (project is null) return; project.IsArchived = false; await db.SaveChangesAsync(); message = "تمت استعادة المشروع إلى النظام التشغيلي."; await LoadAsync(); }
+    private async Task RestoreMemberAsync(string id) { await using var db = await DbFactory.CreateDbContextAsync(); var member = await db.Users.FindAsync(id); if (member is null) return; member.IsArchived = false; await db.SaveChangesAsync(); message = "تمت استعادة حساب العضو."; await LoadAsync(); }
+}

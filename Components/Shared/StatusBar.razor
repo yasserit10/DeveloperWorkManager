@@ -1,0 +1,11 @@
+<div>
+    <div class="mb-2 flex justify-between text-xs font-extrabold text-slate-500"><span>@Label</span><span>@Percentage%</span></div>
+    <div class="h-2 overflow-hidden rounded-full @Track"><div class="h-full rounded-full @Color" style="width: @Percentage%"></div></div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
+    [Parameter] public int Percentage { get; set; }
+    [Parameter, EditorRequired] public string Color { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Track { get; set; } = string.Empty;
+}

@@ -1,0 +1,90 @@
+@page "/"
+@attribute [Authorize(Roles = "UnitManager,ReportViewer")]
+@rendermode InteractiveServer
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+
+<PageTitle>لوحة التحكم | مدير العمل</PageTitle>
+
+<section class="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+    <div class="dashboard-heading">
+        <div class="dashboard-heading-icon"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i></div>
+        <div>
+            <p class="mb-2 text-sm font-extrabold text-brand-600">لوحة المتابعة</p>
+            <h1 class="m-0 text-3xl font-black tracking-tight text-slate-900 sm:text-4xl">نظرة شاملة على إنجاز الفريق</h1>
+            <p class="mt-3 max-w-2xl text-sm leading-7 text-slate-500">تابع ما يجري الآن، راقب العوائق، وانتقل مباشرةً إلى التفاصيل التي تحتاجها.</p>
+        </div>
+    </div>
+    <a href="tasks" class="btn-primary no-underline"><i class="fa-solid fa-plus" aria-hidden="true"></i> إضافة مهمة</a>
+</section>
+
+@if (isLoading)
+{
+    <div class="mt-8 grid grid-cols-2 gap-4 xl:grid-cols-4">
+        @for (var i = 0; i < 4; i++)
+        {
+            <div class="metric-card min-h-40 animate-pulse bg-slate-100"></div>
+        }
+    </div>
+}
+else
+{
+    <section class="mt-8 grid grid-cols-2 gap-4 xl:grid-cols-4">
+        <div class="metric-card"><div class="flex items-start justify-between"><div><p class="m-0 text-sm font-bold text-slate-500">إجمالي المهام</p><p class="mb-0 mt-3 text-3xl font-black text-slate-900">@totalTasks</p></div><span class="metric-icon bg-blue-50 text-brand-600"><i class="fa-solid fa-list-check" aria-hidden="true"></i></span></div><p class="mb-0 mt-4 text-xs font-bold text-slate-400">ضمن المشاريع النشطة</p></div>
+        <div class="metric-card"><div class="flex items-start justify-between"><div><p class="m-0 text-sm font-bold text-slate-500">قيد التنفيذ</p><p class="mb-0 mt-3 text-3xl font-black text-slate-900">@inProgress</p></div><span class="metric-icon bg-violet-50 text-violet-600"><i class="fa-solid fa-spinner" aria-hidden="true"></i></span></div><p class="mb-0 mt-4 text-xs font-bold text-slate-400">أعمال تحتاج متابعة</p></div>
+        <div class="metric-card"><div class="flex items-start justify-between"><div><p class="m-0 text-sm font-bold text-slate-500">بانتظار مراجعة</p><p class="mb-0 mt-3 text-3xl font-black text-slate-900">@waitingReview</p></div><span class="metric-icon bg-amber-50 text-amber-600"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i></span></div><p class="mb-0 mt-4 text-xs font-bold text-slate-400">جاهزة للاعتماد</p></div>
+        <div class="metric-card"><div class="flex items-start justify-between"><div><p class="m-0 text-sm font-bold text-slate-500">مهام متوقفة</p><p class="mb-0 mt-3 text-3xl font-black text-slate-900">@blocked</p></div><span class="metric-icon bg-rose-50 text-rose-600"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i></span></div><p class="mb-0 mt-4 text-xs font-bold text-slate-400">تحتاج إزالة عائق</p></div>
+    </section>
+
+    <section class="mt-6 grid gap-6 xl:grid-cols-[1.55fr_1fr]">
+        <div class="section-card overflow-hidden">
+            <div class="flex items-center justify-between border-b border-slate-100 px-6 py-5"><div><h2 class="m-0 text-base font-black text-slate-800">آخر النشاطات</h2><p class="mb-0 mt-1 text-xs font-bold text-slate-400">آخر تحديثات الفريق المسجلة</p></div><a href="tasks" class="text-xs font-extrabold text-brand-600 no-underline">عرض المهام</a></div>
+            @if (recentUpdates.Count == 0)
+            {
+                <div class="grid min-h-64 place-items-center px-6 py-10 text-center"><div><div class="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-brand-50 text-xl text-brand-600"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i></div><h3 class="mb-0 mt-4 text-base font-black text-slate-700">جاهز لبدء العمل</h3><p class="mb-0 mt-2 max-w-sm text-sm leading-6 text-slate-400">أضف مشروعاً ومهمة لتبدأ ملخصات إنجاز الفريق بالظهور هنا.</p></div></div>
+            }
+            else
+            {
+                <div class="divide-y divide-slate-100">
+                    @foreach (var update in recentUpdates)
+                    {
+                        <div class="flex gap-3 px-6 py-4"><span class="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600"><i class="fa-solid fa-comment-dots" aria-hidden="true"></i></span><div class="min-w-0 flex-1"><p class="m-0 text-sm font-extrabold text-slate-700">@update.WorkItem.Title</p><p class="mb-0 mt-1 truncate text-xs text-slate-500">@update.Summary</p></div><span class="whitespace-nowrap text-[11px] font-bold text-slate-400">@update.CreatedAt.ToLocalTime().ToString("dd/MM")</span></div>
+                    }
+                </div>
+            }
+        </div>
+        <div class="section-card p-6">
+            <h2 class="m-0 text-base font-black text-slate-800">ملخص حالة الفريق</h2><p class="mb-6 mt-1 text-xs font-bold text-slate-400">توزيع المهام حسب الحالة</p>
+            <div class="space-y-5"><StatusBar Label="مكتملة" Percentage="@completedPercent" Color="bg-emerald-500" Track="bg-emerald-50" /><StatusBar Label="قيد التنفيذ" Percentage="@inProgressPercent" Color="bg-brand-500" Track="bg-blue-50" /><StatusBar Label="متوقفة" Percentage="@blockedPercent" Color="bg-rose-500" Track="bg-rose-50" /></div>
+            <div class="mt-8 rounded-xl bg-slate-50 p-4"><p class="m-0 text-xs font-bold leading-6 text-slate-500"><span class="status-dot ml-2 bg-brand-500"></span>@(totalTasks == 0 ? "تظهر البيانات الحية هنا بمجرد إدخال المشاريع والمهام." : "تُحدّث المؤشرات تلقائياً من المهام المسجلة.")</p></div>
+        </div>
+    </section>
+}
+
+@code {
+    private bool isLoading = true;
+    private int totalTasks;
+    private int inProgress;
+    private int waitingReview;
+    private int blocked;
+    private int completedPercent;
+    private int inProgressPercent;
+    private int blockedPercent;
+    private List<WorkUpdate> recentUpdates = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var tasks = await db.WorkItems.AsNoTracking().Where(x => !x.Project.IsArchived).ToListAsync();
+        totalTasks = tasks.Count;
+        inProgress = tasks.Count(x => x.Status == WorkStatus.InProgress);
+        waitingReview = tasks.Count(x => x.Status == WorkStatus.WaitingForReview);
+        blocked = tasks.Count(x => x.Status == WorkStatus.Blocked);
+        completedPercent = Percentage(tasks.Count(x => x.Status == WorkStatus.Completed));
+        inProgressPercent = Percentage(inProgress);
+        blockedPercent = Percentage(blocked);
+        recentUpdates = await db.WorkUpdates.AsNoTracking().Include(x => x.WorkItem).OrderByDescending(x => x.CreatedAt).Take(6).ToListAsync();
+        isLoading = false;
+    }
+
+    private int Percentage(int value) => totalTasks == 0 ? 0 : (int)Math.Round(value * 100d / totalTasks);
+}

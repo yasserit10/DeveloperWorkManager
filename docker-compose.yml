@@ -1,0 +1,33 @@
+services:
+  migrate:
+    build:
+      context: .
+      target: build
+    restart: "no"
+    command: ["dotnet", "tool", "run", "dotnet-ef", "database", "update", "--configuration", "Release", "--no-build"]
+    env_file:
+      - .env
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+    network_mode: host
+
+  web:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    volumes:
+      - data-protection-keys:/var/dwm-keys
+      - memo-uploads:/var/dwm-uploads
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://127.0.0.1:8088
+      Storage__MemoImagesPath: /var/dwm-uploads/memo-images
+    network_mode: host
+
+volumes:
+  data-protection-keys:
+  memo-uploads:

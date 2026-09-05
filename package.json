@@ -1,0 +1,20 @@
+{
+  "name": "developerworkmanager",
+  "version": "1.0.0",
+  "description": "Arabic-first internal work-management system for a programming unit. It records projects, assigned work, progress updates, blockers, and report-ready history.",
+  "scripts": {
+    "build:scss": "sass Styles/app.scss wwwroot/css/tailwind.input.css --no-source-map",
+    "build:css": "npm run build:scss && tailwindcss -i wwwroot/css/tailwind.input.css -o wwwroot/app.css --minify"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "sass": "^1.103.1",
+    "tailwindcss": "^3.4.17"
+  },
+  "dependencies": {
+    "@fortawesome/fontawesome-free": "^7.3.1"
+  }
+}

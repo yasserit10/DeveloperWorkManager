@@ -1,0 +1,23 @@
+﻿@inherits LayoutComponentBase
+@layout DeveloperWorkManager.Components.Layout.MainLayout
+
+<section class="manage-shell route-transition">
+    <header class="manage-hero">
+        <div class="manage-hero-icon"><i class="fa-solid fa-user-gear" aria-hidden="true"></i></div>
+        <div>
+            <p class="page-eyebrow">إعدادات الحساب</p>
+            <h1>إدارة حسابي</h1>
+            <p>حدّث بياناتك وإعدادات الأمان من مكان واحد.</p>
+        </div>
+    </header>
+
+    <div class="manage-grid">
+        <aside class="manage-nav-card">
+            <p class="manage-nav-title">خيارات الحساب</p>
+            <ManageNavMenu />
+        </aside>
+        <div class="manage-panel">
+            @Body
+        </div>
+    </div>
+</section>

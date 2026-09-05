@@ -1,0 +1,31 @@
+﻿@using DeveloperWorkManager.Components.Account.Shared
+<Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
+    <Found Context="routeData">
+        @if (IsDisabledManagePage(routeData.PageType))
+        {
+            <section class="empty-state section-card">
+                <div>
+                    <span class="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-slate-100 text-xl text-slate-500"><i class="fa-solid fa-lock" aria-hidden="true"></i></span>
+                    <h1 class="mb-0 mt-4 text-lg font-black text-slate-800">هذه الإعدادات غير متاحة</h1>
+                    <p class="mb-0 mt-2 text-sm font-bold text-slate-400">تم تبسيط إعدادات الحساب لتناسب متطلبات النظام.</p>
+                    <a href="Account/Manage" class="btn-primary mt-5 no-underline">العودة إلى الحساب</a>
+                </div>
+            </section>
+        }
+        else
+        {
+            <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+                <NotAuthorized>
+                    <RedirectToLogin />
+                </NotAuthorized>
+            </AuthorizeRouteView>
+        }
+    </Found>
+</Router>
+
+@code {
+    private static bool IsDisabledManagePage(Type pageType) =>
+        pageType.Namespace == "DeveloperWorkManager.Components.Account.Pages.Manage" &&
+        pageType != typeof(Components.Account.Pages.Manage.Index) &&
+        pageType != typeof(Components.Account.Pages.Manage.ChangePassword);
+}

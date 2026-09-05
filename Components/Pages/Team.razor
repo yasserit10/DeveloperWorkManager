@@ -1,0 +1,199 @@
+@page "/team"
+@attribute [Authorize(Roles = "UnitManager")]
+@rendermode InteractiveServer
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Identity
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject UserManager<ApplicationUser> UserManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject IJSRuntime JS
+
+<PageTitle>فريق البرمجة | مدير العمل</PageTitle>
+
+<section class="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+    <div><p class="page-eyebrow">إدارة الفريق</p><h1 class="m-0 text-3xl font-black text-slate-900">فريق البرمجة</h1><p class="mb-0 mt-3 text-sm leading-7 text-slate-500">أنشئ حسابات الأعضاء، حدّد دور كل منهم، ثم أبقِ سجل عملهم محفوظاً حتى عند الأرشفة.</p></div>
+    <button type="button" class="btn-primary" @onclick="OpenForm"><i class="fa-solid fa-user-plus" aria-hidden="true"></i> إضافة عضو</button>
+</section>
+
+<PageToast Message="@message" IsError="@isError" />
+
+@if (showForm)
+{
+    <dialog id="member-editor" @ref="memberEditorDialog" open="@(!isEditing)" @oncancel="CloseForm" aria-modal="@isEditing" aria-labelledby="member-editor-title" class="section-card form-reveal p-6 sm:p-7 @(isEditing ? "member-editor-modal" : "member-editor-inline")">
+        <div class="mb-6 flex items-center justify-between"><div><h2 id="member-editor-title" class="m-0 text-lg font-black text-slate-800">@(isEditing ? "تعديل بيانات العضو" : "عضو جديد")</h2><p class="mb-0 mt-1 text-xs font-bold text-slate-400">@(isEditing ? "غيّر اسم المستخدم أو الاسم أو عيّن كلمة مرور جديدة عند الحاجة." : "اسم المستخدم وكلمة المرور هما بيانات الدخول الداخلية للعضو.")</p></div><button type="button" class="text-slate-400 hover:text-slate-700" @onclick="CloseForm" title="إغلاق"><i class="fa-solid fa-xmark text-lg" aria-hidden="true"></i></button></div>
+        <EditForm Model="draft" OnValidSubmit="SaveMember" class="grid gap-5 md:grid-cols-2">
+            <DataAnnotationsValidator />
+            <div><label for="member-name" class="form-label-modern">الاسم الكامل</label><InputText id="member-name" class="form-control-modern pr-4" @bind-Value="draft.FullName" placeholder="مثال: أحمد علي" /><ValidationMessage For="() => draft.FullName" class="validation-modern" /></div>
+            <div><label for="member-username" class="form-label-modern">اسم المستخدم</label><InputText id="member-username" class="form-control-modern pr-4" @bind-Value="draft.UserName" autocomplete="off" placeholder="ahmed" /><ValidationMessage For="() => draft.UserName" class="validation-modern" /></div>
+            <div><label for="member-password" class="form-label-modern">@(isEditing ? "كلمة مرور جديدة" : "كلمة المرور الأولية")</label><InputText id="member-password" type="password" class="form-control-modern pr-4" @bind-Value="draft.Password" autocomplete="new-password" placeholder="@(isEditing ? "اتركها فارغة للإبقاء على الحالية" : "كلمة مرور قوية")" /><ValidationMessage For="() => draft.Password" class="validation-modern" /></div>
+            @if (!isEditing)
+            {
+                <div><label for="member-role" class="form-label-modern">دور العضو</label><AppDropdown Id="member-role" @bind-Value="draft.Role" Options="RoleOptions" /></div>
+            }
+            <div class="flex gap-3 md:col-span-2"><button type="submit" class="btn-primary">@(isEditing ? "حفظ التعديلات" : "إنشاء الحساب") <i class="fa-solid @(isEditing ? "fa-floppy-disk" : "fa-check")" aria-hidden="true"></i></button><button type="button" class="btn-secondary" @onclick="CloseForm">إلغاء</button></div>
+        </EditForm>
+    </dialog>
+}
+
+<ListSearchFilters @bind-SearchText="searchText" @bind-FromDate="fromDate" @bind-ToDate="toDate" IdPrefix="team-list" SearchPlaceholder="ابحث بالاسم أو اسم المستخدم أو الدور" />
+
+<section class="section-card mt-6 overflow-hidden">
+    <div class="flex items-center justify-between border-b border-slate-100 px-6 py-5"><div><h2 class="m-0 text-base font-black text-slate-800">الأعضاء المسجلون</h2><p class="mb-0 mt-1 text-xs font-bold text-slate-400">@FilteredMembers.Count حساباً في النظام</p></div><span class="rounded-lg bg-brand-50 px-3 py-1.5 text-xs font-extrabold text-brand-600">@FilteredMembers.Count(x => !x.IsArchived) نشط</span></div>
+    @if (isLoading)
+    {
+        <div class="p-6"><div class="h-32 animate-pulse rounded-2xl bg-slate-100"></div></div>
+    }
+    else
+    {
+        <div class="overflow-x-auto"><table class="update-log-table member-log-table"><thead><tr><th class="w-[23%]">العضو</th><th class="w-[17%]">اسم المستخدم</th><th class="w-[25%]">الدور</th><th class="w-[12%]">المهام</th><th class="w-[23%]">الإجراءات</th></tr></thead><tbody>@foreach (var member in FilteredMembers) { <tr @key="member.Id"><td><div class="flex min-w-0 items-center gap-3"><span class="user-avatar h-8 w-8 rounded-lg text-xs @(member.IsArchived ? "bg-slate-100 text-slate-400" : string.Empty)">@Initials(member.FullName)</span><div class="min-w-0"><span class="block truncate font-black text-slate-800">@member.FullName</span>@if (member.IsArchived) { <span class="mt-1 inline-block rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">مؤرشف</span> }</div></div></td><td dir="ltr" class="text-right text-slate-400">@@@member.UserName</td><td><div class="flex flex-wrap gap-1">@foreach (var role in member.Roles) { <span class="rounded-md bg-slate-50 px-2 py-0.5 text-[10px] font-bold text-slate-500">@RoleLabel(role)</span> }</div></td><td><span class="whitespace-nowrap text-xs font-extrabold text-slate-500">@member.AssignedTasks مهمة</span></td><td><div class="flex items-center gap-2"><button type="button" class="rounded-lg bg-brand-50 px-3 py-1.5 text-xs font-extrabold text-brand-700" @onclick="() => OpenEdit(member)"><i class="fa-solid fa-pen ml-1" aria-hidden="true"></i>تعديل</button><button type="button" class="rounded-lg px-3 py-1.5 text-xs font-extrabold @(member.IsArchived ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600")" @onclick="() => ToggleArchive(member.Id)"><i class="fa-solid fa-box-archive ml-1" aria-hidden="true"></i>@(member.IsArchived ? "استعادة" : "أرشفة")</button></div></td></tr>}</tbody></table></div>
+    }
+</section>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+    private readonly List<MemberView> members = [];
+    private MemberDraft draft = new();
+    private bool isLoading = true;
+    private bool showForm;
+    private bool editDialogOpened;
+    private ElementReference memberEditorDialog;
+    private string? editingMemberId;
+    private bool isError;
+    private string? message;
+    private bool isEditing => !string.IsNullOrWhiteSpace(editingMemberId);
+    private string searchText = string.Empty;
+    private DateOnly? fromDate;
+    private DateOnly? toDate;
+    private List<MemberView> FilteredMembers => members.Where(x =>
+        (string.IsNullOrWhiteSpace(searchText) || x.FullName.Contains(searchText, StringComparison.OrdinalIgnoreCase) || x.UserName.Contains(searchText, StringComparison.OrdinalIgnoreCase) || x.Roles.Any(role => RoleLabel(role).Contains(searchText, StringComparison.OrdinalIgnoreCase))) &&
+        (!fromDate.HasValue || DateOnly.FromDateTime(x.CreatedAt) >= fromDate.Value) &&
+        (!toDate.HasValue || DateOnly.FromDateTime(x.CreatedAt) <= toDate.Value)).ToList();
+    private static readonly AppDropdownOption[] RoleOptions = [new("Programmer", "مبرمج"), new("ReportViewer", "قارئ التقارير"), new("UnitManager", "مدير الوحدة")];
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (showForm && isEditing && !editDialogOpened)
+        {
+            editDialogOpened = true;
+            await JS.InvokeVoidAsync("dwm.openModalDialog", memberEditorDialog);
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var users = await db.Users.AsNoTracking().Include(x => x.AssignedWorkItems).Where(x => !x.IsArchived).OrderBy(x => x.FullName).ToListAsync();
+        members.Clear();
+        foreach (var user in users)
+        {
+            members.Add(new MemberView(user.Id, user.UserName ?? string.Empty, string.IsNullOrWhiteSpace(user.FullName) ? user.UserName ?? "مستخدم" : user.FullName, user.IsArchived, user.AssignedWorkItems.Count, user.CreatedAt, (await UserManager.GetRolesAsync(user)).ToList()));
+        }
+        isLoading = false;
+    }
+
+    private void OpenForm() { draft = new(); editingMemberId = null; editDialogOpened = false; message = null; showForm = true; }
+    private void OpenEdit(MemberView member) { draft = new() { FullName = member.FullName, UserName = member.UserName, Role = member.Roles.FirstOrDefault() ?? "Programmer" }; editingMemberId = member.Id; editDialogOpened = false; message = null; showForm = true; }
+    private void CloseForm() { showForm = false; editingMemberId = null; editDialogOpened = false; }
+
+    private async Task SaveMember()
+    {
+        var userName = draft.UserName.Trim();
+        if (string.IsNullOrWhiteSpace(userName)) { isError = true; message = "اسم المستخدم مطلوب."; return; }
+
+        if (isEditing)
+        {
+            await UpdateMemberAsync(userName);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(draft.Password)) { isError = true; message = "كلمة المرور الأولية مطلوبة."; return; }
+        var user = new ApplicationUser { UserName = userName, Email = $"{userName}@system.local", EmailConfirmed = true, FullName = draft.FullName.Trim() };
+        var result = await UserManager.CreateAsync(user, draft.Password);
+        if (!result.Succeeded)
+        {
+            isError = true;
+            message = string.Join(" ", result.Errors.Select(x => x.Description));
+            return;
+        }
+
+        var roleResult = await UserManager.AddToRoleAsync(user, draft.Role);
+        if (!roleResult.Succeeded)
+        {
+            isError = true;
+            message = "تم إنشاء الحساب، لكن تعذر تعيين الدور. حاول مرة أخرى.";
+            return;
+        }
+
+        showForm = false;
+        isError = false;
+        message = "تم إنشاء حساب العضو بنجاح.";
+        await LoadAsync();
+    }
+
+    private async Task UpdateMemberAsync(string userName)
+    {
+        var user = await UserManager.FindByIdAsync(editingMemberId!);
+        if (user is null) { isError = true; message = "تعذر العثور على حساب العضو."; return; }
+
+        user.FullName = draft.FullName.Trim();
+        user.UserName = userName;
+        user.Email = $"{userName}@system.local";
+        var updateResult = await UserManager.UpdateAsync(user);
+        if (!updateResult.Succeeded)
+        {
+            isError = true;
+            message = string.Join(" ", updateResult.Errors.Select(x => x.Description));
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(draft.Password))
+        {
+            var resetToken = await UserManager.GeneratePasswordResetTokenAsync(user);
+            var passwordResult = await UserManager.ResetPasswordAsync(user, resetToken, draft.Password);
+            if (!passwordResult.Succeeded)
+            {
+                isError = true;
+                message = "تم حفظ الاسم، لكن تعذر تغيير كلمة المرور. " + string.Join(" ", passwordResult.Errors.Select(x => x.Description));
+                return;
+            }
+        }
+
+        var currentUserId = (await AuthenticationStateTask).User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (user.Id == currentUserId) await SignInManager.RefreshSignInAsync(user);
+
+        showForm = false;
+        editingMemberId = null;
+        editDialogOpened = false;
+        isError = false;
+        message = "تم حفظ بيانات العضو بنجاح.";
+        await LoadAsync();
+    }
+
+    private async Task ToggleArchive(string id)
+    {
+        var currentUserId = (await AuthenticationStateTask).User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (id == currentUserId) { isError = true; message = "لا يمكن أرشفة الحساب الذي تستخدمه الآن."; return; }
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var user = await db.Users.FindAsync(id);
+        if (user is null) return;
+        user.IsArchived = !user.IsArchived;
+        user.SecurityStamp = Guid.NewGuid().ToString("N");
+        await db.SaveChangesAsync();
+        isError = false;
+        message = user.IsArchived ? "تم نقل العضو إلى سجل الأرشيف مع الحفاظ على كامل سجله." : "تمت استعادة حساب العضو.";
+        await LoadAsync();
+    }
+
+    private static string Initials(string name) => string.Concat(name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(x => x[0]));
+    private static string RoleLabel(string role) => role switch { "UnitManager" => "مدير الوحدة", "Programmer" => "مبرمج", "ReportViewer" => "قارئ التقارير", _ => role };
+    private sealed record MemberView(string Id, string UserName, string FullName, bool IsArchived, int AssignedTasks, DateTime CreatedAt, List<string> Roles);
+    private sealed class MemberDraft
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "الاسم الكامل مطلوب.")][System.ComponentModel.DataAnnotations.StringLength(120)] public string FullName { get; set; } = string.Empty;
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "اسم المستخدم مطلوب.")][System.ComponentModel.DataAnnotations.StringLength(80)] public string UserName { get; set; } = string.Empty;
+        [System.ComponentModel.DataAnnotations.DataType(System.ComponentModel.DataAnnotations.DataType.Password)] public string Password { get; set; } = string.Empty;
+        public string Role { get; set; } = "Programmer";
+    }
+}

@@ -1,0 +1,152 @@
+﻿@page "/Account/Login"
+
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Identity
+@using DeveloperWorkManager.Data
+
+@inject UserManager<ApplicationUser> UserManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject ILogger<Login> Logger
+@inject NavigationManager NavigationManager
+@inject IdentityRedirectManager RedirectManager
+
+@layout DeveloperWorkManager.Components.Layout.AuthLayout
+
+<PageTitle>تسجيل الدخول | مدير العمل</PageTitle>
+
+<section class="auth-card">
+    <div class="mb-9">
+        <span class="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-50 text-brand-600"><i class="fa-solid fa-right-to-bracket text-lg" aria-hidden="true"></i></span>
+        <p class="mb-2 mt-6 text-sm font-extrabold text-brand-600">مرحباً بعودتك</p>
+        <h2 class="m-0 text-3xl font-black text-slate-900">تسجيل الدخول</h2>
+        <p class="mb-0 mt-3 text-sm leading-6 text-slate-500">أدخل بيانات حسابك للوصول إلى مساحة العمل.</p>
+    </div>
+
+    <StatusMessage Message="@errorMessage" />
+    <EditForm EditContext="editContext" method="post" OnSubmit="LoginUser" FormName="login" class="space-y-5">
+        <DataAnnotationsValidator />
+        <ValidationSummary class="rounded-xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-600" role="alert" />
+        <div>
+            <label for="Input.UserName" class="form-label-modern">اسم المستخدم</label>
+            <div class="input-with-icon">
+                <i class="fa-regular fa-user" aria-hidden="true"></i>
+                <InputText @bind-Value="Input.UserName" id="Input.UserName" class="form-control-modern" autocomplete="username" aria-required="true" placeholder="أدخل اسم المستخدم" />
+            </div>
+            <ValidationMessage For="() => Input.UserName" class="validation-modern" />
+        </div>
+        <div>
+            <label for="Input.Password" class="form-label-modern">كلمة المرور</label>
+            <div class="input-with-icon">
+                <i class="fa-solid fa-lock" aria-hidden="true"></i>
+                <InputText type="password" @bind-Value="Input.Password" id="Input.Password" class="form-control-modern" autocomplete="current-password" aria-required="true" placeholder="••••••••" />
+            </div>
+            <ValidationMessage For="() => Input.Password" class="validation-modern" />
+        </div>
+        <label class="flex cursor-pointer items-center gap-2 text-sm font-bold text-slate-600">
+            <InputCheckbox @bind-Value="Input.RememberMe" class="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500" />
+            تذكّر تسجيل الدخول على هذا الجهاز
+        </label>
+        <button type="submit" class="btn-primary w-full py-3.5">دخول إلى النظام <i class="fa-solid fa-arrow-left" aria-hidden="true"></i></button>
+    </EditForm>
+
+    <p class="mb-0 mt-8 border-t border-slate-100 pt-6 text-center text-xs font-bold text-slate-400">للمساعدة في استعادة الدخول، تواصل مع مدير النظام.</p>
+</section>
+
+@code {
+    private string? errorMessage;
+    private EditContext editContext = default!;
+
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private InputModel Input { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+
+        editContext = new EditContext(Input);
+
+        if (HttpMethods.IsGet(HttpContext.Request.Method))
+        {
+            // Clear the existing external cookie to ensure a clean login process
+            await HttpContext.SignOutAsync(IdentityConstants.ExternalScheme);
+        }
+    }
+
+    public async Task LoginUser()
+    {
+        if (!string.IsNullOrEmpty(Input.Passkey?.Error))
+        {
+            errorMessage = $"Error: {Input.Passkey.Error}";
+            return;
+        }
+
+        SignInResult result;
+        if (!string.IsNullOrEmpty(Input.Passkey?.CredentialJson))
+        {
+            // When performing passkey sign-in, don't perform form validation.
+            result = await SignInManager.PasskeySignInAsync(Input.Passkey.CredentialJson);
+        }
+        else
+        {
+            // If doing a password sign-in, validate the form.
+            if (!editContext.Validate())
+            {
+                return;
+            }
+
+            var account = await UserManager.FindByNameAsync(Input.UserName);
+            if (account?.IsArchived == true)
+            {
+                errorMessage = "هذا الحساب مؤرشف. تواصل مع مدير النظام لإعادة تفعيله.";
+                return;
+            }
+
+            // This doesn't count login failures towards account lockout
+            // To enable password failures to trigger account lockout, set lockoutOnFailure: true
+            result = await SignInManager.PasswordSignInAsync(Input.UserName, Input.Password, Input.RememberMe, lockoutOnFailure: false);
+        }
+
+        if (result.Succeeded)
+        {
+            Logger.LogInformation("User logged in.");
+            RedirectManager.RedirectTo(ReturnUrl);
+        }
+        else if (result.RequiresTwoFactor)
+        {
+            RedirectManager.RedirectTo(
+                "Account/LoginWith2fa",
+                new() { ["returnUrl"] = ReturnUrl, ["rememberMe"] = Input.RememberMe });
+        }
+        else if (result.IsLockedOut)
+        {
+            Logger.LogWarning("User account locked out.");
+            RedirectManager.RedirectTo("Account/Lockout");
+        }
+        else
+        {
+            errorMessage = "تعذر تسجيل الدخول. تحقق من اسم المستخدم وكلمة المرور.";
+        }
+    }
+
+    private sealed class InputModel
+    {
+        [Required]
+        public string UserName { get; set; } = "";
+
+        [Required]
+        [DataType(DataType.Password)]
+        public string Password { get; set; } = "";
+
+        [Display(Name = "Remember me?")]
+        public bool RememberMe { get; set; }
+
+        public PasskeyInputModel? Passkey { get; set; }
+    }
+}

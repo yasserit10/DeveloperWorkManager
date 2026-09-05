@@ -1,0 +1,8 @@
+.git
+.vs
+node_modules
+bin
+obj
+artifacts
+.env
+deploy/.env

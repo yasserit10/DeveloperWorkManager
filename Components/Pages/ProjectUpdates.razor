@@ -1,0 +1,293 @@
+@page "/updates"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@using System.ComponentModel.DataAnnotations
+@using System.Security.Claims
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+
+<PageTitle>على ماذا أعمل | مدير العمل</PageTitle>
+
+<section class="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+    <div><p class="page-eyebrow">تنفيذ المهام</p><h1 class="m-0 text-3xl font-black text-slate-900">على ماذا أعمل</h1><p class="mb-0 mt-3 text-sm leading-7 text-slate-500">ابدأ المهمة المسندة إليك من هنا، حدّث حالتها، وعند إنهائها اكتب نص الإنجاز لتنقل تلقائيًا إلى المنجزات.</p></div>
+    @if (CanCreate) { <button type="button" class="btn-primary" @onclick="ToggleForm"><i class="fa-solid fa-bullseye" aria-hidden="true"></i> تحديث حالتي</button> }
+</section>
+
+@if (isProgrammer && !CanCreate)
+{
+    <div class="mt-5 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-700">@(projects.Count == 0 ? "لا توجد مشاريع مسندة إليك حاليًا." : "تظهر مشاريعك أدناه، ولا توجد لديك مهمة نشطة عليها حاليًا.")</div>
+}
+
+<PageToast Message="@message" IsError="@isError" />
+
+@if (showForm && CanCreate)
+{
+    <section class="section-card form-reveal mt-6 p-6 sm:p-7">
+        <div class="mb-6 flex items-start justify-between gap-4">
+            <div class="flex items-start gap-3"><span class="metric-icon h-10 w-10 shrink-0 bg-brand-50 text-brand-600"><i class="fa-solid fa-location-dot" aria-hidden="true"></i></span><div><h2 class="m-0 text-lg font-black text-slate-800">بدء أو تحديث مهمة</h2><p class="mb-0 mt-1 text-xs font-bold leading-6 text-slate-400">اختر المهمة المسندة إليك ثم حدّد حالتها الحالية.</p></div></div>
+            <button type="button" class="shrink-0 text-slate-400 transition hover:text-slate-700" title="إغلاق" @onclick="CloseForm"><i class="fa-solid fa-xmark text-lg" aria-hidden="true"></i></button>
+        </div>
+        <EditForm Model="draft" OnValidSubmit="SaveAsync" class="grid gap-5 md:grid-cols-2">
+            <DataAnnotationsValidator />
+            <div><label class="form-label-modern" for="work-state-project">المشروع</label><AppDropdown Id="work-state-project" Value="@draft.ProjectId" ValueChanged="SetProject" Options="ProjectOptions" Placeholder="اختر المشروع" /><ValidationMessage For="() => draft.ProjectId" class="validation-modern" /></div>
+            <div><label class="form-label-modern" for="work-state-task">المهمة</label><AppDropdown Id="work-state-task" @bind-Value="draft.WorkItemId" Options="TaskOptions" Placeholder="اختر المهمة" /><ValidationMessage For="() => draft.WorkItemId" class="validation-modern" /></div>
+            <div class="md:col-span-2">
+                <label class="form-label-modern">الحالة</label>
+                <InputRadioGroup @bind-Value="draft.Status" class="work-state-options">
+                    <label class="work-state-option not-started @(draft.Status == WorkActivityStatus.NotStarted ? "selected" : string.Empty)"><InputRadio Value="WorkActivityStatus.NotStarted" /><span class="work-state-option-icon"><i class="fa-solid fa-hourglass-start" aria-hidden="true"></i></span><span><strong>لم أبدأ بعد</strong><small>المهمة لم يبدأ تنفيذها</small></span></label>
+                    <label class="work-state-option working @(draft.Status == WorkActivityStatus.WorkingNow ? "selected" : string.Empty)"><InputRadio Value="WorkActivityStatus.WorkingNow" /><span class="work-state-option-icon"><i class="fa-solid fa-play" aria-hidden="true"></i></span><span><strong>أعمل الآن</strong><small>المهمة قيد التنفيذ</small></span></label>
+                    <label class="work-state-option paused @(draft.Status == WorkActivityStatus.Paused ? "selected" : string.Empty)"><InputRadio Value="WorkActivityStatus.Paused" /><span class="work-state-option-icon"><i class="fa-solid fa-pause" aria-hidden="true"></i></span><span><strong>متوقف</strong><small>توقفت مؤقتًا عن العمل</small></span></label>
+                    <label class="work-state-option finished @(draft.Status == WorkActivityStatus.Finished ? "selected" : string.Empty)"><InputRadio Value="WorkActivityStatus.Finished" /><span class="work-state-option-icon"><i class="fa-solid fa-check" aria-hidden="true"></i></span><span><strong>منتهي</strong><small>إكمال المهمة وإضافة منجز</small></span></label>
+                </InputRadioGroup>
+            </div>
+            @if (draft.Status == WorkActivityStatus.Finished)
+            {
+                <div class="form-reveal md:col-span-2">
+                    <label class="form-label-modern" for="work-state-achievement">نص الإنجاز</label>
+                    <InputTextArea id="work-state-achievement" class="form-control-modern min-h-28 pr-4" @bind-Value="draft.AchievementText" placeholder="اكتب باختصار ما تم إنجازه والنتيجة النهائية للمهمة..." />
+                    <p class="mb-0 mt-2 text-xs font-bold text-slate-400">سيظهر هذا النص تلقائيًا داخل سجل المنجزات.</p>
+                    @if (!string.IsNullOrWhiteSpace(achievementValidationMessage)) { <p class="validation-modern mt-2">@achievementValidationMessage</p> }
+                </div>
+            }
+            <div class="flex gap-3 md:col-span-2"><button class="btn-primary" type="submit"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> حفظ الحالة</button><button class="btn-secondary" type="button" @onclick="CloseForm">إلغاء</button></div>
+        </EditForm>
+    </section>
+}
+
+@if (isProgrammer)
+{
+    @if (LatestAssignedTask is not null)
+    {
+        <section class="latest-assigned-task section-card mt-6 p-5 sm:p-6">
+            <div class="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                <div class="flex min-w-0 items-start gap-4">
+                    <span class="metric-icon h-11 w-11 shrink-0 bg-brand-50 text-brand-600"><i class="fa-solid fa-clipboard-check" aria-hidden="true"></i></span>
+                    <div class="min-w-0"><p class="m-0 text-xs font-extrabold text-brand-600">آخر مهمة مسندة إليك</p><h2 class="mb-0 mt-1 truncate text-lg font-black text-slate-800" title="@LatestAssignedTask.Title">@LatestAssignedTask.Title</h2><p class="mb-0 mt-1 text-xs font-bold text-slate-400">@LatestAssignedTask.Project.Name <span class="mx-1">·</span> @TaskStatusLabel(LatestAssignedTask.Status)</p></div>
+                </div>
+                <a href="tasks" class="btn-primary shrink-0 no-underline"><i class="fa-regular fa-eye" aria-hidden="true"></i> عرض التفاصيل</a>
+            </div>
+            <p class="latest-assigned-task-description mb-0 mt-5 whitespace-pre-wrap break-words">@(string.IsNullOrWhiteSpace(LatestAssignedTask.Description) ? "لا توجد تفاصيل إضافية لهذه المهمة." : LatestAssignedTask.Description)</p>
+        </section>
+    }
+    <section class="section-card mt-6 overflow-hidden">
+        <div class="flex items-center justify-between border-b border-slate-100 px-6 py-5">
+            <div><h2 class="m-0 text-base font-black text-slate-800">مشاريعي الحالية</h2><p class="mb-0 mt-1 text-xs font-bold text-slate-400">المشاريع المسندة إليك والمهام النشطة داخلها.</p></div>
+            <span class="rounded-lg bg-brand-50 px-3 py-1.5 text-xs font-extrabold text-brand-600">@projects.Count مشروع</span>
+        </div>
+        @if (projects.Count == 0)
+        {
+            <div class="empty-state"><div><i class="fa-solid fa-folder-open text-3xl text-brand-600" aria-hidden="true"></i><p class="mt-4 text-sm font-bold text-slate-400">لا توجد مشاريع مسندة إليك حاليًا.</p></div></div>
+        }
+        else
+        {
+            <div class="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-3">
+                @foreach (var project in projects)
+                {
+                    var projectTasks = ActiveTasksFor(project.Id);
+                    <article class="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm" @key="project.Id">
+                        <div class="flex items-start justify-between gap-4">
+                            <div class="flex min-w-0 items-start gap-3">
+                                <span class="metric-icon h-10 w-10 shrink-0 bg-brand-50 text-brand-600"><i class="fa-solid fa-folder" aria-hidden="true"></i></span>
+                                <div class="min-w-0"><h3 class="m-0 truncate text-sm font-black text-slate-800" title="@project.Name">@project.Name</h3><p class="mb-0 mt-1 text-[11px] font-bold text-slate-400">@projectTasks.Count مهمة نشطة</p></div>
+                            </div>
+                            @if (projectTasks.Count > 0) { <span class="h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500" title="يوجد عمل نشط"></span> }
+                        </div>
+                        <p class="mb-0 mt-4 line-clamp-2 min-h-10 text-xs leading-5 text-slate-500">@(string.IsNullOrWhiteSpace(project.Description) ? "لا يوجد وصف للمشروع." : project.Description)</p>
+                        @if (projectTasks.Count > 0)
+                        {
+                            <div class="mt-4 space-y-2 border-t border-slate-100 pt-4">
+                                @foreach (var task in projectTasks.Take(3))
+                                {
+                                    <div class="flex items-center justify-between gap-3 text-xs"><span class="min-w-0 truncate font-bold text-slate-600" title="@task.Title">@task.Title</span><span class="shrink-0 rounded-md bg-slate-100 px-2 py-1 text-[10px] font-extrabold text-slate-500">@TaskStatusLabel(task.Status)</span></div>
+                                }
+                                @if (projectTasks.Count > 3) { <p class="mb-0 text-[11px] font-bold text-slate-400">و@((projectTasks.Count - 3).ToString()) مهام أخرى</p> }
+                            </div>
+                        }
+                        <div class="mt-4 flex flex-wrap gap-2">
+                            @if (IsHttpUrl(project.ProjectUrl)) { <a class="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-2 text-[11px] font-extrabold text-brand-700 no-underline transition hover:bg-brand-50" href="@project.ProjectUrl" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-link" aria-hidden="true"></i>رابط المشروع</a> }
+                            @if (IsHttpUrl(project.LatestReleaseUrl)) { <a class="inline-flex items-center gap-1.5 rounded-lg bg-brand-50 px-3 py-2 text-[11px] font-extrabold text-brand-700 no-underline transition hover:bg-brand-100" href="@project.LatestReleaseUrl" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-download" aria-hidden="true"></i>آخر نسخة</a> }
+                        </div>
+                    </article>
+                }
+            </div>
+        }
+    </section>
+}
+
+<ListSearchFilters @bind-SearchText="searchText" @bind-FromDate="fromDate" @bind-ToDate="toDate" IdPrefix="work-state-list" SearchPlaceholder="ابحث بالمشروع أو المهمة أو اسم المبرمج">
+    @if (isManager) { <div><label class="form-label-modern" for="work-state-developer-filter">المبرمج</label><AppDropdown Id="work-state-developer-filter" @bind-Value="selectedDeveloperId" Options="DeveloperFilterOptions" /></div> }
+    <div><label class="form-label-modern" for="work-state-project-filter">المشروع</label><AppDropdown Id="work-state-project-filter" @bind-Value="selectedProjectId" Options="ProjectFilterOptions" /></div>
+</ListSearchFilters>
+
+<section class="section-card mt-6 overflow-hidden">
+    <div class="flex items-center justify-between border-b border-slate-100 px-6 py-5"><div><h2 class="m-0 text-base font-black text-slate-800">سجل حالات العمل</h2><p class="mb-0 mt-1 text-xs font-bold text-slate-400">@FilteredEntries.Count حالة حالية، مرتبة بحسب آخر تحديث.</p></div><span class="metric-icon h-10 w-10 bg-brand-50 text-brand-600"><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i></span></div>
+    @if (FilteredEntries.Count == 0)
+    {
+        <div class="empty-state"><div><i class="fa-solid fa-bullseye text-3xl text-brand-600" aria-hidden="true"></i><p class="mt-4 text-sm font-bold text-slate-400">لا توجد حالات عمل مسجلة ضمن الفلترة الحالية.</p></div></div>
+    }
+    else
+    {
+        <div class="overflow-x-auto"><table class="update-log-table work-state-table"><thead><tr><th>الحالة</th><th>المشروع</th><th>المهمة</th>@if (isManager) { <th>المبرمج</th> }<th>آخر تحديث</th></tr></thead><tbody>@foreach (var entry in FilteredEntries) { <tr><td><span class="work-state-badge @StatusClass(entry.Status)"><i class="fa-solid @StatusIcon(entry.Status)" aria-hidden="true"></i>@StatusLabel(entry.Status)</span></td><td><span class="block truncate font-black text-slate-800" title="@entry.Project.Name">@entry.Project.Name</span></td><td><span class="block truncate text-slate-600" title="@entry.WorkItem.Title">@entry.WorkItem.Title</span></td>@if (isManager) { <td><span class="block truncate">@DisplayName(entry.CreatedBy)</span></td> }<td dir="ltr" class="whitespace-nowrap text-[11px] text-slate-400">@entry.CreatedAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</td></tr>}</tbody></table></div>
+    }
+</section>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+    private readonly List<WorkProject> projects = [];
+    private readonly List<WorkItem> tasks = [];
+    private readonly List<WorkStateEntry> entries = [];
+    private readonly List<ApplicationUser> developers = [];
+    private WorkStateDraft draft = new();
+    private string? currentUserId;
+    private bool isManager;
+    private bool isProgrammer;
+    private bool showForm;
+    private bool isError;
+    private string? message;
+    private string searchText = string.Empty;
+    private string selectedDeveloperId = string.Empty;
+    private string selectedProjectId = string.Empty;
+    private string? achievementValidationMessage;
+    private DateOnly? fromDate;
+    private DateOnly? toDate;
+
+    private bool CanCreate => isProgrammer && projects.Count > 0 && tasks.Any(x => x.Status != WorkStatus.Completed);
+    private IEnumerable<AppDropdownOption> ProjectOptions => projects.Where(project => tasks.Any(task => task.ProjectId == project.Id && task.Status != WorkStatus.Completed)).Select(x => new AppDropdownOption(x.Id.ToString(), x.Name));
+    private IEnumerable<AppDropdownOption> TaskOptions => tasks.Where(x => x.ProjectId.ToString() == draft.ProjectId && x.Status != WorkStatus.Completed).Select(x => new AppDropdownOption(x.Id.ToString(), x.Title));
+    private IEnumerable<AppDropdownOption> DeveloperFilterOptions => [new(string.Empty, "كل المبرمجين"), .. developers.Select(x => new AppDropdownOption(x.Id, DisplayName(x)))];
+    private IEnumerable<AppDropdownOption> ProjectFilterOptions => [new(string.Empty, "كل المشاريع"), .. projects.Select(x => new AppDropdownOption(x.Id.ToString(), x.Name))];
+    private WorkItem? LatestAssignedTask => tasks.OrderByDescending(x => x.CreatedAt).FirstOrDefault();
+    private List<WorkStateEntry> FilteredEntries => entries.Where(x =>
+        (string.IsNullOrWhiteSpace(selectedDeveloperId) || x.CreatedById == selectedDeveloperId) &&
+        (string.IsNullOrWhiteSpace(selectedProjectId) || x.ProjectId.ToString() == selectedProjectId) &&
+        (string.IsNullOrWhiteSpace(searchText) || x.Project.Name.Contains(searchText, StringComparison.OrdinalIgnoreCase) || x.WorkItem.Title.Contains(searchText, StringComparison.OrdinalIgnoreCase) || DisplayName(x.CreatedBy).Contains(searchText, StringComparison.OrdinalIgnoreCase) || StatusLabel(x.Status).Contains(searchText, StringComparison.OrdinalIgnoreCase)) &&
+        (!fromDate.HasValue || DateOnly.FromDateTime(x.CreatedAt) >= fromDate.Value) &&
+        (!toDate.HasValue || DateOnly.FromDateTime(x.CreatedAt) <= toDate.Value)).ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = (await AuthenticationStateTask).User;
+        currentUserId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        isManager = user.IsInRole("UnitManager");
+        isProgrammer = user.IsInRole("Programmer");
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        if (string.IsNullOrWhiteSpace(currentUserId)) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        tasks.Clear();
+        var taskQuery = db.WorkItems.AsNoTracking().Include(x => x.Project).Where(x => !x.Project.IsArchived && x.Status != WorkStatus.Completed);
+        if (!isManager) taskQuery = taskQuery.Where(x => x.AssignedToId == currentUserId);
+        tasks.AddRange(await taskQuery.OrderBy(x => x.Title).ToListAsync());
+        projects.Clear();
+        if (isManager)
+        {
+            projects.AddRange(await db.Projects.AsNoTracking().Where(x => !x.IsArchived).OrderBy(x => x.Name).ToListAsync());
+        }
+        else
+        {
+            projects.AddRange(await db.Projects.AsNoTracking()
+                .Where(x => !x.IsArchived && (x.AssignedDeveloperId == currentUserId || x.Developers.Any(developer => developer.DeveloperId == currentUserId)))
+                .OrderBy(x => x.Name)
+                .ToListAsync());
+            projects.AddRange(tasks.Select(x => x.Project).Where(x => projects.All(project => project.Id != x.Id)).GroupBy(x => x.Id).Select(x => x.First()).OrderBy(x => x.Name));
+        }
+        developers.Clear();
+        if (isManager) developers.AddRange(await db.Users.AsNoTracking().Where(x => !x.IsArchived).OrderBy(x => x.FullName).ToListAsync());
+        entries.Clear();
+        var entryQuery = db.WorkStateEntries.AsNoTracking().Include(x => x.Project).Include(x => x.WorkItem).Include(x => x.CreatedBy).Where(x => !x.Project.IsArchived);
+        if (!isManager) entryQuery = entryQuery.Where(x => x.CreatedById == currentUserId);
+        var stateEntries = await entryQuery.OrderByDescending(x => x.CreatedAt).ToListAsync();
+        entries.AddRange(stateEntries
+            .GroupBy(x => x.WorkItemId)
+            .Select(group => group.First())
+            .Take(250));
+    }
+
+    private Task SetProject(string value) { draft.ProjectId = value; draft.WorkItemId = string.Empty; return Task.CompletedTask; }
+    private void ToggleForm() { showForm = !showForm; message = null; achievementValidationMessage = null; isError = false; }
+    private void CloseForm() { showForm = false; achievementValidationMessage = null; }
+
+    private async Task SaveAsync()
+    {
+        if (!isProgrammer || string.IsNullOrWhiteSpace(currentUserId)) return;
+        achievementValidationMessage = null;
+        if (draft.Status == WorkActivityStatus.Finished && string.IsNullOrWhiteSpace(draft.AchievementText))
+        {
+            achievementValidationMessage = "اكتب نص الإنجاز قبل إنهاء المهمة.";
+            isError = true;
+            message = "تعذر إنهاء المهمة قبل كتابة نص الإنجاز.";
+            return;
+        }
+        var projectId = int.TryParse(draft.ProjectId, out var parsedProjectId) ? parsedProjectId : 0;
+        var workItemId = int.TryParse(draft.WorkItemId, out var parsedWorkItemId) ? parsedWorkItemId : 0;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var task = await db.WorkItems.Include(x => x.Project).SingleOrDefaultAsync(x => x.Id == workItemId && x.ProjectId == projectId);
+        if (task is null || task.AssignedToId != currentUserId || task.Project.IsArchived)
+        {
+            isError = true; message = "المهمة المختارة غير مسندة إليك."; return;
+        }
+        if (task.Status == WorkStatus.Completed)
+        {
+            isError = true; message = "هذه المهمة مكتملة بالفعل."; await LoadAsync(); return;
+        }
+
+        var currentState = await db.WorkStateEntries
+            .Where(x => x.WorkItemId == task.Id)
+            .OrderByDescending(x => x.CreatedAt)
+            .FirstOrDefaultAsync();
+        if (currentState is null)
+        {
+            db.WorkStateEntries.Add(new WorkStateEntry { ProjectId = task.ProjectId, WorkItemId = task.Id, CreatedById = currentUserId, Status = draft.Status });
+        }
+        else
+        {
+            currentState.ProjectId = task.ProjectId;
+            currentState.CreatedById = currentUserId;
+            currentState.Status = draft.Status;
+            currentState.CreatedAt = DateTime.UtcNow;
+        }
+        task.Status = draft.Status switch { WorkActivityStatus.NotStarted => WorkStatus.New, WorkActivityStatus.WorkingNow => WorkStatus.InProgress, WorkActivityStatus.Paused => WorkStatus.Blocked, WorkActivityStatus.Finished => WorkStatus.Completed, _ => task.Status };
+        if (draft.Status == WorkActivityStatus.NotStarted) { task.CompletionPercent = 0; task.BlockerReason = null; task.CompletedAt = null; }
+        else if (draft.Status == WorkActivityStatus.WorkingNow) { task.BlockerReason = null; task.CompletedAt = null; }
+        else if (draft.Status == WorkActivityStatus.Paused) { task.BlockerReason = "تم تحديد حالة العمل كمتوقف مؤقتًا."; task.CompletedAt = null; }
+        else
+        {
+            task.CompletionPercent = 100; task.BlockerReason = null; task.CompletedAt = DateTime.UtcNow;
+            var alreadyAdded = await db.Achievements.AnyAsync(x => x.SourceWorkItemId == task.Id);
+            if (!alreadyAdded)
+            {
+                var taskDetails = string.IsNullOrWhiteSpace(task.Description) ? string.Empty : $" تفاصيل المهمة: {task.Description}";
+                var details = $"{draft.AchievementText!.Trim()} — المهمة: «{task.Title}»، المشروع: «{task.Project.Name}».{taskDetails}";
+                db.Achievements.Add(new Achievement { CreatedById = currentUserId, SourceWorkItemId = task.Id, Title = $"تم إنجاز مهمة: {task.Title}", AchievementDate = DateOnly.FromDateTime(DateTime.Today), Details = details });
+            }
+        }
+
+        var authorName = await db.Users.Where(x => x.Id == currentUserId).Select(x => x.FullName).FirstOrDefaultAsync() ?? "أحد أعضاء الفريق";
+        var managerIds = await (from userRole in db.UserRoles join role in db.Roles on userRole.RoleId equals role.Id join account in db.Users on userRole.UserId equals account.Id where role.Name == "UnitManager" && !account.IsArchived select account.Id).ToListAsync();
+        foreach (var managerId in managerIds.Where(x => x != currentUserId).Distinct()) db.Notifications.Add(new SystemNotification { UserId = managerId, Type = "WorkState", Title = "تحديث حالة عمل", Message = $"{authorName}: {StatusLabel(draft.Status)} على مهمة «{task.Title}» ضمن «{task.Project.Name}».", TargetUrl = "/updates" });
+
+        await db.SaveChangesAsync();
+        var finished = draft.Status == WorkActivityStatus.Finished;
+        draft = new(); showForm = false; isError = false;
+        message = finished ? "تم إنهاء المهمة وإضافتها إلى المنجزات تلقائيًا." : "تم حفظ حالة العمل.";
+        await LoadAsync();
+    }
+
+    private static string DisplayName(ApplicationUser user) => string.IsNullOrWhiteSpace(user.FullName) ? user.UserName ?? "مستخدم" : user.FullName;
+    private List<WorkItem> ActiveTasksFor(int projectId) => tasks.Where(x => x.ProjectId == projectId && x.Status != WorkStatus.Completed).OrderBy(x => x.DueDate).ThenBy(x => x.Title).ToList();
+    private static bool IsHttpUrl(string? value) => Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https";
+    private static string TaskStatusLabel(WorkStatus status) => status switch { WorkStatus.New => "جديدة", WorkStatus.InProgress => "قيد التنفيذ", WorkStatus.WaitingForReview => "بانتظار المراجعة", WorkStatus.Blocked => "متوقفة", WorkStatus.Completed => "مكتملة", _ => "غير محددة" };
+    private static string StatusLabel(WorkActivityStatus status) => status switch { WorkActivityStatus.NotStarted => "لم أبدأ بعد", WorkActivityStatus.WorkingNow => "أعمل الآن", WorkActivityStatus.Paused => "متوقف", WorkActivityStatus.Finished => "منتهي", _ => "غير محدد" };
+    private static string StatusIcon(WorkActivityStatus status) => status switch { WorkActivityStatus.NotStarted => "fa-hourglass-start", WorkActivityStatus.WorkingNow => "fa-play", WorkActivityStatus.Paused => "fa-pause", WorkActivityStatus.Finished => "fa-check", _ => "fa-circle" };
+    private static string StatusClass(WorkActivityStatus status) => status switch { WorkActivityStatus.NotStarted => "not-started", WorkActivityStatus.WorkingNow => "working", WorkActivityStatus.Paused => "paused", WorkActivityStatus.Finished => "finished", _ => string.Empty };
+
+    private sealed class WorkStateDraft
+    {
+        [Required(ErrorMessage = "اختر المشروع.")] public string ProjectId { get; set; } = string.Empty;
+        [Required(ErrorMessage = "اختر المهمة.")] public string WorkItemId { get; set; } = string.Empty;
+        public WorkActivityStatus Status { get; set; } = WorkActivityStatus.WorkingNow;
+        [StringLength(3000, ErrorMessage = "نص الإنجاز طويل جدًا.")] public string? AchievementText { get; set; }
+    }
+}

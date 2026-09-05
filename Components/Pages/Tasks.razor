@@ -1,0 +1,290 @@
+@page "/tasks"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@using System.Security.Claims
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject IJSRuntime JS
+
+<PageTitle>المهام | مدير العمل</PageTitle>
+
+<section class="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+    <div><p class="mb-2 text-sm font-extrabold text-brand-600">إدارة العمل</p><h1 class="m-0 text-3xl font-black text-slate-900">@(isManager ? "المهام" : "مهامي")</h1><p class="mb-0 mt-3 text-sm leading-7 text-slate-500">@(isManager ? "أنشئ المهمة وأسندها، ثم يتابعها المبرمج من صفحة «على ماذا أعمل»." : "تظهر هنا مهامك الجديدة والنشطة، وابدأ العمل عليها من صفحة «على ماذا أعمل».")</p></div>
+    @if (isManager)
+    {
+        <div class="flex flex-wrap gap-3">
+            @if (showMemoRequests)
+            {
+                <button type="button" class="btn-primary" @onclick="OpenMemoRequestForm"><i class="fa-solid fa-file-circle-plus" aria-hidden="true"></i> إضافة طلب مذكرة</button>
+                <button type="button" class="btn-secondary" @onclick="ToggleMemoFilters"><i class="fa-solid fa-filter" aria-hidden="true"></i> @(showMemoFilters ? "إخفاء البحث والفلترة" : "بحث وفلترة")</button>
+            }
+            else
+            {
+                <button type="button" class="btn-primary" disabled="@(activeProjects.Count == 0 || employees.Count == 0)" @onclick="OpenNewTask"><i class="fa-solid fa-plus" aria-hidden="true"></i> إضافة مهمة</button>
+                <button type="button" class="btn-secondary" @onclick="ToggleTaskFilters"><i class="fa-solid fa-filter" aria-hidden="true"></i> @(showTaskFilters ? "إخفاء البحث والفلترة" : "بحث وفلترة")</button>
+            }
+        </div>
+    }
+</section>
+
+<nav class="task-page-tabs mt-6 @(showMemoRequests ? "memo-active" : string.Empty)" aria-label="أقسام صفحة المهام">
+    <span class="task-page-tab-indicator" aria-hidden="true"></span>
+    <button type="button" class="task-page-tab @(!showMemoRequests ? "active" : string.Empty)" @onclick="() => showMemoRequests = false"><i class="fa-solid fa-list-check" aria-hidden="true"></i> المهام</button>
+    <button type="button" class="task-page-tab @(showMemoRequests ? "active" : string.Empty)" @onclick="() => showMemoRequests = true"><i class="fa-solid @(isManager ? "fa-file-circle-plus" : "fa-inbox")" aria-hidden="true"></i> @(isManager ? "إضافة طلب مذكرة" : "المذكرات الواردة")</button>
+</nav>
+
+@if (!showMemoRequests)
+{
+@if (showTaskFilters)
+{
+    <div class="form-reveal"><ListSearchFilters @bind-SearchText="searchText" @bind-FromDate="fromDate" @bind-ToDate="toDate" IdPrefix="tasks-list" SearchPlaceholder="ابحث بعنوان المهمة أو المشروع أو المسؤول" /></div>
+}
+
+<PageToast Message="@message" IsError="@isError" />
+
+@if (selectedTask is not null)
+{
+    <dialog id="task-details-dialog" @ref="taskDetailsDialog" @oncancel="CloseTaskDetails" aria-modal="true" aria-labelledby="task-details-title" class="section-card achievement-details-modal task-details-modal">
+        <div class="achievement-details-header">
+            <div class="flex min-w-0 items-start gap-3">
+                <span class="achievement-details-icon"><i class="fa-solid fa-list-check" aria-hidden="true"></i></span>
+                <div class="min-w-0"><p class="m-0 text-xs font-extrabold text-brand-600">تفاصيل المهمة</p><h2 id="task-details-title" class="mb-0 mt-1 text-xl font-black leading-8 text-slate-900">@selectedTask.Title</h2></div>
+            </div>
+            <button type="button" class="achievement-details-close" @onclick="CloseTaskDetails" title="إغلاق" aria-label="إغلاق تفاصيل المهمة"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+        </div>
+        <div class="achievement-details-body">
+            <div class="achievement-details-summary">
+                <div class="achievement-details-summary-item"><span><i class="fa-solid fa-folder" aria-hidden="true"></i> المشروع</span><strong>@selectedTask.Project.Name</strong></div>
+                <div class="achievement-details-summary-item"><span><i class="fa-solid fa-user" aria-hidden="true"></i> المسؤول</span><strong>@(string.IsNullOrWhiteSpace(selectedTask.AssignedTo.FullName) ? selectedTask.AssignedTo.UserName : selectedTask.AssignedTo.FullName)</strong></div>
+                <div class="achievement-details-summary-item"><span><i class="fa-solid fa-signal" aria-hidden="true"></i> الأولوية والحالة</span><strong>@PriorityLabel(selectedTask.Priority) · @StatusLabel(selectedTask.Status)</strong></div>
+                <div class="achievement-details-summary-item"><span><i class="fa-regular fa-calendar" aria-hidden="true"></i> الموعد النهائي</span><strong dir="ltr">@(selectedTask.DueDate?.ToString("yyyy/MM/dd") ?? "دون موعد")</strong></div>
+            </div>
+            <div class="achievement-details-text"><div class="flex items-center gap-2 text-sm font-black text-slate-800"><i class="fa-solid fa-align-right text-brand-600" aria-hidden="true"></i><span>التفاصيل المطلوبة</span></div><p>@(string.IsNullOrWhiteSpace(selectedTask.Description) ? "لا توجد تفاصيل إضافية لهذه المهمة." : selectedTask.Description)</p></div>
+        </div>
+        <div class="achievement-details-footer"><button type="button" class="btn-primary" @onclick="CloseTaskDetails"><i class="fa-solid fa-check" aria-hidden="true"></i> تم الاطلاع</button></div>
+    </dialog>
+}
+
+@if (isManager && (activeProjects.Count == 0 || employees.Count == 0))
+{
+    <div class="mt-6 rounded-2xl border border-amber-100 bg-amber-50 p-5 text-sm font-bold text-amber-800"><i class="fa-solid fa-circle-info ml-2" aria-hidden="true"></i>@(activeProjects.Count == 0 ? "أضف مشروعاً نشطاً أولاً قبل إنشاء مهمة." : "لا يوجد مستخدم نشط يمكن إسناد المهمة إليه.")</div>
+}
+
+@if (isManager && showTaskForm)
+{
+    <section class="section-card mt-6 p-6 sm:p-7">
+        <div class="mb-6 flex items-center justify-between"><div><h2 class="m-0 text-lg font-black text-slate-800">إضافة مهمة</h2><p class="mb-0 mt-1 text-xs font-bold text-slate-400">اربط المهمة بمشروع وعضو مسؤول عنها.</p></div><button type="button" class="text-slate-400 hover:text-slate-700" @onclick="CloseTaskForm" title="إغلاق"><i class="fa-solid fa-xmark text-lg" aria-hidden="true"></i></button></div>
+        <EditForm Model="taskDraft" OnValidSubmit="SaveTask" class="grid gap-5 md:grid-cols-2">
+            <DataAnnotationsValidator />
+            <div class="md:col-span-2"><label class="form-label-modern" for="task-title">عنوان المهمة</label><InputText id="task-title" class="form-control-modern pr-4" @bind-Value="taskDraft.Title" placeholder="مثال: تصميم واجهة لوحة التقارير" /><ValidationMessage For="() => taskDraft.Title" class="validation-modern" /></div>
+            <div><label class="form-label-modern" for="task-project">المشروع</label><AppDropdown Id="task-project" Value="@taskDraft.ProjectId.ToString()" ValueChanged="SetProject" Options="ProjectOptions" Placeholder="اختر المشروع" /><ValidationMessage For="() => taskDraft.ProjectId" class="validation-modern" /></div>
+            <div><label class="form-label-modern" for="task-owner">المسؤول</label><AppDropdown Id="task-owner" @bind-Value="taskDraft.AssignedToId" Options="EmployeeOptions" Placeholder="اختر عضو الفريق" /><ValidationMessage For="() => taskDraft.AssignedToId" class="validation-modern" /></div>
+            <div><label class="form-label-modern" for="task-priority">الأولوية</label><AppDropdown Id="task-priority" Value="@taskDraft.Priority.ToString()" ValueChanged="SetPriority" Options="PriorityOptions" /></div>
+            <div><label class="form-label-modern" for="task-due">الموعد النهائي</label><AppDatePicker Id="task-due" OptionalValue="taskDraft.DueDate" OptionalValueChanged="SetTaskDueDate" /></div>
+            <div><label class="form-label-modern" for="task-start">تاريخ البدء</label><AppDatePicker Id="task-start" @bind-Value="taskDraft.StartDate" /></div>
+            <div><label class="form-label-modern" for="task-created">تاريخ الإنشاء</label><input id="task-created" class="form-control-modern cursor-not-allowed bg-slate-50 pr-4 text-slate-400" value="@TaskCreatedAtDisplay" disabled /><p class="mb-0 mt-2 text-xs font-bold text-slate-400">يُثبت تلقائياً عند حفظ المهمة.</p></div>
+            <div class="md:col-span-2"><label class="form-label-modern" for="task-description">تفاصيل المهمة <span class="font-normal text-slate-400">(اختياري)</span></label><InputTextArea id="task-description" class="form-control-modern min-h-24 pr-4" @bind-Value="taskDraft.Description" placeholder="ما المطلوب تسليمه؟ وما معايير القبول؟" /></div>
+            <div class="flex gap-3 md:col-span-2"><button type="submit" class="btn-primary">إنشاء المهمة <i class="fa-solid fa-check" aria-hidden="true"></i></button><button type="button" class="btn-secondary" @onclick="CloseTaskForm">إلغاء</button></div>
+        </EditForm>
+    </section>
+}
+
+@if (pendingDeleteTaskId is not null)
+{
+    <section class="mt-6 rounded-2xl border border-rose-100 bg-rose-50 p-5 text-sm font-bold text-rose-700">
+        <p class="m-0">سيؤدي حذف مهمة «@pendingDeleteTaskTitle» إلى حذف تحديثاتها المرتبطة نهائياً. هل تريد المتابعة؟</p>
+        <div class="mt-4 flex gap-3"><button type="button" class="rounded-xl bg-rose-600 px-4 py-3 text-sm font-extrabold text-white" @onclick="DeleteTaskAsync">حذف نهائي</button><button type="button" class="btn-secondary" @onclick="CancelDelete">إلغاء</button></div>
+    </section>
+}
+
+<section class="section-card mt-6 overflow-hidden">
+    <div class="flex items-center justify-between border-b border-slate-100 px-6 py-5"><div><h2 class="m-0 text-base font-black text-slate-800">@(isManager ? "المهام النشطة" : "مهامي النشطة")</h2><p class="mb-0 mt-1 text-xs font-bold text-slate-400">@FilteredTasks.Count مهمة بانتظار البدء أو الإكمال</p></div>@if (isManager) { <a href="projects" class="text-xs font-extrabold text-brand-600 no-underline"><i class="fa-solid fa-folder-tree ml-1" aria-hidden="true"></i>إدارة المشاريع</a> } else { <a href="updates" class="text-xs font-extrabold text-brand-600 no-underline"><i class="fa-solid fa-bullseye ml-1" aria-hidden="true"></i>على ماذا أعمل</a> }</div>
+    @if (isLoading)
+    {
+        <div class="p-6"><div class="h-32 animate-pulse rounded-2xl bg-slate-100"></div></div>
+    }
+    else if (FilteredTasks.Count == 0)
+    {
+        <div class="grid min-h-72 place-items-center p-8 text-center"><div><span class="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-brand-50 text-brand-600"><i class="fa-solid fa-list-check text-xl" aria-hidden="true"></i></span><h3 class="mb-0 mt-4 text-base font-black text-slate-700">لا توجد مهام بعد</h3><p class="mb-0 mt-2 text-sm text-slate-400">أضف مهمة وعيّن المسؤول عنها لتبدأ المتابعة.</p></div></div>
+    }
+    else
+    {
+        <div class="divide-y divide-slate-100">
+            @foreach (var task in FilteredTasks)
+            {
+                <article id="task-@task.Id" class="flex flex-col gap-4 px-6 py-5 xl:flex-row xl:items-center @(highlightedTaskId == task.Id ? "task-notification-highlight" : string.Empty)" @key="task.Id">
+                    <span class="grid h-11 w-11 shrink-0 place-items-center rounded-xl @PriorityClass(task.Priority)"><i class="fa-solid fa-list-check" aria-hidden="true"></i></span>
+                    <div class="min-w-0 flex-1"><div class="flex flex-wrap items-center gap-2"><h3 class="m-0 text-sm font-black text-slate-800">@task.Title</h3><span class="rounded-md px-2 py-0.5 text-[11px] font-bold @StatusClass(task.Status)">@StatusLabel(task.Status)</span></div><p class="mb-0 mt-2 text-xs font-bold text-slate-400">@task.Project.Name <span class="mx-1">·</span> @(string.IsNullOrWhiteSpace(task.AssignedTo.FullName) ? task.AssignedTo.Email : task.AssignedTo.FullName)</p></div>
+                    <div class="flex shrink-0 flex-wrap items-center gap-3"><span class="hidden text-xs font-bold text-slate-400 md:inline">@(task.DueDate?.ToString("yyyy/MM/dd") ?? "دون موعد")</span><button type="button" class="achievement-details-button" @onclick="() => OpenTaskDetails(task)"><i class="fa-regular fa-eye" aria-hidden="true"></i><span>عرض التفاصيل</span></button>@if (!isManager) { <a href="updates" class="btn-secondary px-3 py-2 text-xs no-underline"><i class="fa-solid fa-play" aria-hidden="true"></i> بدء أو تحديث</a> }@if (isManager) { <button type="button" class="rounded-lg bg-rose-50 px-3 py-2 text-xs font-extrabold text-rose-700" @onclick="() => RequestDelete(task)"><i class="fa-solid fa-trash-can ml-1" aria-hidden="true"></i>حذف</button> }</div>
+                </article>
+            }
+        </div>
+    }
+</section>
+}
+else
+{
+    <TaskMemoRequests OpenFormRequest="@memoFormRequest" ShowFilters="@showMemoFilters" />
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "taskId")] public int? NotificationTaskId { get; set; }
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+    private readonly List<WorkProject> activeProjects = [];
+    private readonly List<ApplicationUser> employees = [];
+    private readonly List<WorkItem> tasks = [];
+    private TaskDraft taskDraft = new();
+    private bool isLoading = true;
+    private bool showTaskForm;
+    private bool isError;
+    private string? message;
+    private string? currentUserId;
+    private bool isManager;
+    private bool showMemoRequests;
+    private int memoFormRequest;
+    private bool showMemoFilters;
+    private bool showTaskFilters;
+    private string searchText = string.Empty;
+    private DateOnly? fromDate;
+    private DateOnly? toDate;
+    private int? pendingDeleteTaskId;
+    private string? pendingDeleteTaskTitle;
+    private WorkItem? selectedTask;
+    private ElementReference taskDetailsDialog;
+    private bool taskDetailsDialogOpened;
+    private int? highlightedTaskId;
+    private bool taskHighlightApplied;
+    private string TaskCreatedAtDisplay => taskDraft.CreatedAt.ToString("yyyy/MM/dd HH:mm");
+    private List<WorkItem> FilteredTasks => tasks.Where(x =>
+        (string.IsNullOrWhiteSpace(searchText) || x.Title.Contains(searchText, StringComparison.OrdinalIgnoreCase) || x.Project.Name.Contains(searchText, StringComparison.OrdinalIgnoreCase) || x.AssignedTo.FullName.Contains(searchText, StringComparison.OrdinalIgnoreCase)) &&
+        (!fromDate.HasValue || DateOnly.FromDateTime(x.CreatedAt) >= fromDate.Value) &&
+        (!toDate.HasValue || DateOnly.FromDateTime(x.CreatedAt) <= toDate.Value)).ToList();
+    private IEnumerable<AppDropdownOption> ProjectOptions => [new("0", "اختر المشروع"), .. activeProjects.Select(x => new AppDropdownOption(x.Id.ToString(), x.Name))];
+    private IEnumerable<AppDropdownOption> EmployeeOptions => [new(string.Empty, "اختر عضو الفريق"), .. employees.Select(x => new AppDropdownOption(x.Id, string.IsNullOrWhiteSpace(x.FullName) ? x.UserName ?? "مستخدم" : x.FullName))];
+    private static readonly AppDropdownOption[] PriorityOptions = [new(nameof(WorkPriority.Low), "منخفضة"), new(nameof(WorkPriority.Normal), "عادية"), new(nameof(WorkPriority.High), "عالية"), new(nameof(WorkPriority.Urgent), "عاجلة")];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = (await AuthenticationStateTask).User;
+        currentUserId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        isManager = user.IsInRole("UnitManager");
+        await LoadAsync();
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (highlightedTaskId == NotificationTaskId) return;
+        highlightedTaskId = NotificationTaskId;
+        taskHighlightApplied = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (selectedTask is not null && !taskDetailsDialogOpened)
+        {
+            taskDetailsDialogOpened = true;
+            await JS.InvokeVoidAsync("dwm.openModalDialog", taskDetailsDialog);
+        }
+        if (highlightedTaskId is int taskId && !taskHighlightApplied && tasks.Any(task => task.Id == taskId))
+        {
+            taskHighlightApplied = true;
+            await JS.InvokeVoidAsync("dwm.highlightTask", $"task-{taskId}", 3000);
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        activeProjects.Clear();
+        employees.Clear();
+        if (isManager)
+        {
+            activeProjects.AddRange(await db.Projects.AsNoTracking().Where(x => !x.IsArchived).OrderBy(x => x.Name).ToListAsync());
+            employees.AddRange(await db.Users.AsNoTracking().Where(x => !x.IsArchived).OrderBy(x => x.FullName).ToListAsync());
+        }
+        tasks.Clear();
+        var taskQuery = db.WorkItems.AsNoTracking().Include(x => x.Project).Include(x => x.AssignedTo).Where(x => !x.Project.IsArchived && x.Status != WorkStatus.Completed).AsQueryable();
+        if (!isManager && !string.IsNullOrWhiteSpace(currentUserId)) taskQuery = taskQuery.Where(x => x.AssignedToId == currentUserId);
+        tasks.AddRange(await taskQuery.OrderByDescending(x => x.CreatedAt).ToListAsync());
+        isLoading = false;
+    }
+
+    private void OpenNewTask() { taskDraft = new(); message = null; showTaskFilters = false; showTaskForm = true; }
+    private void OpenMemoRequestForm() { showMemoFilters = false; memoFormRequest++; }
+    private void ToggleMemoFilters() => showMemoFilters = !showMemoFilters;
+    private void ToggleTaskFilters()
+    {
+        showTaskFilters = !showTaskFilters;
+        if (showTaskFilters) showTaskForm = false;
+    }
+    private void CloseTaskForm() => showTaskForm = false;
+    private void SetProject(string value) => taskDraft.ProjectId = int.TryParse(value, out var projectId) ? projectId : 0;
+    private void SetPriority(string value) { if (Enum.TryParse<WorkPriority>(value, out var priority)) taskDraft.Priority = priority; }
+    private void SetTaskDueDate(DateOnly? value) => taskDraft.DueDate = value;
+    private void OpenTaskDetails(WorkItem task) { selectedTask = task; taskDetailsDialogOpened = false; }
+    private void CloseTaskDetails() { selectedTask = null; taskDetailsDialogOpened = false; }
+    private void RequestDelete(WorkItem task) { if (!isManager) return; pendingDeleteTaskId = task.Id; pendingDeleteTaskTitle = task.Title; }
+    private void CancelDelete() { pendingDeleteTaskId = null; pendingDeleteTaskTitle = null; }
+
+    private async Task DeleteTaskAsync()
+    {
+        if (!isManager || pendingDeleteTaskId is null) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var task = await db.WorkItems.FindAsync(pendingDeleteTaskId.Value);
+        if (task is null) { CancelDelete(); return; }
+        db.WorkItems.Remove(task);
+        await db.SaveChangesAsync();
+        CancelDelete();
+        isError = false;
+        message = "تم حذف المهمة وتحديثاتها المرتبطة نهائياً.";
+        await LoadAsync();
+    }
+
+    private async Task SaveTask()
+    {
+        if (!isManager) { isError = true; message = "ليس لديك صلاحية إنشاء المهام."; return; }
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var projectIsAvailable = await db.Projects.AnyAsync(x => x.Id == taskDraft.ProjectId && !x.IsArchived);
+        var assigneeIsAvailable = !string.IsNullOrWhiteSpace(taskDraft.AssignedToId) && await db.Users.AnyAsync(x => x.Id == taskDraft.AssignedToId && !x.IsArchived);
+        if (!projectIsAvailable || !assigneeIsAvailable)
+        {
+            isError = true;
+            message = "المشروع أو العضو المحدد لم يعد متاحاً. حدّث الصفحة ثم حاول مرة أخرى.";
+            await LoadAsync();
+            return;
+        }
+        var task = new WorkItem { Title = taskDraft.Title.Trim(), ProjectId = taskDraft.ProjectId, AssignedToId = taskDraft.AssignedToId, Description = string.IsNullOrWhiteSpace(taskDraft.Description) ? null : taskDraft.Description.Trim(), Priority = taskDraft.Priority, DueDate = taskDraft.DueDate, StartDate = taskDraft.StartDate, CreatedAt = DateTime.UtcNow };
+        db.WorkItems.Add(task);
+        var projectName = await db.Projects.Where(x => x.Id == taskDraft.ProjectId).Select(x => x.Name).FirstAsync();
+        await db.SaveChangesAsync();
+        db.Notifications.Add(new SystemNotification
+        {
+            UserId = taskDraft.AssignedToId,
+            Type = "Task",
+            Title = "تم إسناد مهمة جديدة إليك",
+            Message = $"المهمة: «{taskDraft.Title.Trim()}» ضمن مشروع «{projectName}».",
+            TargetUrl = $"/tasks?taskId={task.Id}"
+        });
+        await db.SaveChangesAsync();
+        showTaskForm = false;
+        isError = false;
+        message = "تم إنشاء المهمة وإسنادها بنجاح.";
+        await LoadAsync();
+    }
+
+    private static string StatusLabel(WorkStatus status) => status switch { WorkStatus.New => "جديدة", WorkStatus.InProgress => "قيد التنفيذ", WorkStatus.WaitingForReview => "بانتظار المراجعة", WorkStatus.Completed => "مكتملة", WorkStatus.Blocked => "متوقفة", _ => "غير معروفة" };
+    private static string PriorityLabel(WorkPriority priority) => priority switch { WorkPriority.Urgent => "عاجلة", WorkPriority.High => "عالية", WorkPriority.Low => "منخفضة", _ => "عادية" };
+    private static string StatusClass(WorkStatus status) => status switch { WorkStatus.Completed => "bg-emerald-50 text-emerald-700", WorkStatus.Blocked => "bg-rose-50 text-rose-700", WorkStatus.InProgress => "bg-blue-50 text-brand-600", WorkStatus.WaitingForReview => "bg-amber-50 text-amber-700", _ => "bg-slate-100 text-slate-600" };
+    private static string PriorityClass(WorkPriority priority) => priority switch { WorkPriority.Urgent => "bg-rose-50 text-rose-600", WorkPriority.High => "bg-amber-50 text-amber-600", _ => "bg-brand-50 text-brand-600" };
+
+    private sealed class TaskDraft
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "عنوان المهمة مطلوب.")][System.ComponentModel.DataAnnotations.StringLength(300)] public string Title { get; set; } = string.Empty;
+        [System.ComponentModel.DataAnnotations.Range(1, int.MaxValue, ErrorMessage = "اختر مشروعاً.")] public int ProjectId { get; set; }
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "اختر العضو المسؤول.")] public string AssignedToId { get; set; } = string.Empty;
+        public string? Description { get; set; }
+        public WorkPriority Priority { get; set; } = WorkPriority.Normal;
+        public DateOnly StartDate { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+        public DateOnly? DueDate { get; set; }
+        public DateTime CreatedAt { get; set; } = DateTime.Now;
+    }
+}

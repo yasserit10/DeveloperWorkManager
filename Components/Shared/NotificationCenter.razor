@@ -1,0 +1,159 @@
+@implements IAsyncDisposable
+@rendermode InteractiveServer
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IJSRuntime JS
+@inject NavigationManager NavigationManager
+
+<div class="notification-center">
+    <button type="button" class="notification-trigger" @onclick="ToggleAsync" aria-label="الإشعارات" aria-expanded="@isOpen">
+        <i class="fa-regular fa-bell" aria-hidden="true"></i>
+        @if (UnreadCount > 0) { <span class="notification-badge">@(UnreadCount > 99 ? "99+" : UnreadCount)</span> }
+    </button>
+
+    @if (isOpen)
+    {
+        <section class="notification-popover" aria-label="الإشعارات">
+            <div class="notification-popover-head">
+                <div><h2>الإشعارات</h2><p>@(UnreadCount == 0 ? "لا توجد إشعارات جديدة" : $"{UnreadCount} إشعار غير مقروء")</p></div>
+                @if (UnreadCount > 0) { <button type="button" class="notification-text-button" @onclick="MarkAllReadAsync">قراءة الكل</button> }
+            </div>
+            @if (!windowsNotificationsEnabled)
+            {
+                <button type="button" class="notification-windows-button" @onclick="EnableWindowsNotificationsAsync"><i class="fa-brands fa-windows" aria-hidden="true"></i> تفعيل إشعارات Windows</button>
+                <p class="notification-windows-help">تظهر خارج النظام عبر المتصفح بعد السماح بالإشعارات.</p>
+            }
+            @if (notifications.Count == 0)
+            {
+                <div class="notification-empty"><i class="fa-regular fa-bell-slash" aria-hidden="true"></i><span>كل شيء هادئ حالياً.</span></div>
+            }
+            else
+            {
+                <div class="notification-list">
+                    @foreach (var notification in notifications)
+                    {
+                        <button type="button" class="notification-item @(notification.ReadAt is null ? "unread" : string.Empty)" @onclick="() => OpenNotificationAsync(notification)">
+                            <span class="notification-item-icon"><i class="@IconClass(notification.Type)" aria-hidden="true"></i></span>
+                            <span class="min-w-0 flex-1"><strong>@notification.Title</strong><span>@notification.Message</span><small>@notification.CreatedAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</small></span>
+                            @if (notification.ReadAt is null) { <span class="notification-unread-dot" aria-label="جديد"></span> }
+                        </button>
+                    }
+                </div>
+            }
+        </section>
+    }
+</div>
+
+@code {
+    private readonly List<SystemNotification> notifications = [];
+    private CancellationTokenSource? refreshCancellation;
+    private string? currentUserId;
+    private bool isOpen;
+    private bool initialized;
+    private bool windowsNotificationsEnabled;
+    private int UnreadCount => notifications.Count(x => x.ReadAt is null);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User;
+        currentUserId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (!string.IsNullOrWhiteSpace(currentUserId)) await LoadAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || initialized || string.IsNullOrWhiteSpace(currentUserId)) return;
+        initialized = true;
+        windowsNotificationsEnabled = await JS.InvokeAsync<bool>("dwmNotifications.isEnabled");
+        await JS.InvokeVoidAsync("dwmNotifications.start");
+        await InvokeAsync(StateHasChanged);
+        refreshCancellation = new CancellationTokenSource();
+        _ = RefreshPeriodicallyAsync(refreshCancellation.Token);
+    }
+
+    private async Task RefreshPeriodicallyAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                await LoadAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task ToggleAsync()
+    {
+        isOpen = !isOpen;
+        if (isOpen) await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        if (string.IsNullOrWhiteSpace(currentUserId)) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        notifications.Clear();
+        notifications.AddRange(await db.Notifications.AsNoTracking()
+            .Where(x => x.UserId == currentUserId)
+            .OrderByDescending(x => x.CreatedAt)
+            .Take(20)
+            .ToListAsync());
+    }
+
+    private async Task MarkAllReadAsync()
+    {
+        if (string.IsNullOrWhiteSpace(currentUserId)) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var unread = await db.Notifications.Where(x => x.UserId == currentUserId && x.ReadAt == null).ToListAsync();
+        foreach (var notification in unread) notification.ReadAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+        await LoadAsync();
+    }
+
+    private async Task OpenNotificationAsync(SystemNotification notification)
+    {
+        if (notification.ReadAt is null)
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var stored = await db.Notifications.SingleOrDefaultAsync(x => x.Id == notification.Id && x.UserId == currentUserId);
+            if (stored is not null) { stored.ReadAt = DateTime.UtcNow; await db.SaveChangesAsync(); }
+        }
+        isOpen = false;
+        await LoadAsync();
+        var targetUrl = notification.TargetUrl;
+        if (notification.Type == "Task" && !string.IsNullOrWhiteSpace(currentUserId) && (string.IsNullOrWhiteSpace(targetUrl) || !targetUrl.Contains("taskId=", StringComparison.OrdinalIgnoreCase)))
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var assignedTasks = await db.WorkItems.AsNoTracking()
+                .Where(x => x.AssignedToId == currentUserId)
+                .OrderByDescending(x => x.CreatedAt)
+                .ToListAsync();
+            var matchedTask = assignedTasks.FirstOrDefault(task => notification.Message.Contains(task.Title, StringComparison.OrdinalIgnoreCase));
+            if (matchedTask is not null) targetUrl = $"/tasks?taskId={matchedTask.Id}";
+        }
+        if (!string.IsNullOrWhiteSpace(targetUrl)) NavigationManager.NavigateTo(targetUrl);
+    }
+
+    private async Task EnableWindowsNotificationsAsync()
+    {
+        windowsNotificationsEnabled = await JS.InvokeAsync<bool>("dwmNotifications.requestPermission");
+    }
+
+    private static string IconClass(string type) => type switch
+    {
+        "Task" => "fa-solid fa-list-check",
+        "Memo" => "fa-solid fa-inbox",
+        "ProjectUpdate" => "fa-solid fa-clipboard-check",
+        _ => "fa-regular fa-bell"
+    };
+
+    public ValueTask DisposeAsync()
+    {
+        refreshCancellation?.Cancel();
+        refreshCancellation?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

@@ -1,0 +1,29 @@
+<section class="section-card list-search-filters mt-6 p-5 sm:p-6">
+    <div class="mb-4 flex items-center gap-2"><span class="metric-icon h-9 w-9 bg-brand-50 text-brand-600"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i></span><div><h2 class="m-0 text-sm font-black text-slate-800">بحث وفلترة</h2><p class="mb-0 mt-1 text-xs font-bold text-slate-400">ابحث في السجل وحدد فترة زمنية عند الحاجة.</p></div></div>
+    <div class="list-search-filter-fields @(ChildContent is null ? string.Empty : "has-extra-filters")">
+        <div><label class="form-label-modern" for="@SearchId">بحث</label><div class="input-with-icon"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><input id="@SearchId" class="form-control-modern" value="@SearchText" @oninput="SetSearchAsync" placeholder="@SearchPlaceholder" /></div></div>
+        <div><label class="form-label-modern" for="@FromId">من تاريخ</label><AppDatePicker Id="@FromId" OptionalValue="FromDate" OptionalValueChanged="SetFromDateAsync" /></div>
+        <div><label class="form-label-modern" for="@ToId">إلى تاريخ</label><AppDatePicker Id="@ToId" OptionalValue="ToDate" OptionalValueChanged="SetToDateAsync" /></div>
+        @ChildContent
+    </div>
+</section>
+
+@code {
+    [Parameter] public string SearchText { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> SearchTextChanged { get; set; }
+    [Parameter] public DateOnly? FromDate { get; set; }
+    [Parameter] public EventCallback<DateOnly?> FromDateChanged { get; set; }
+    [Parameter] public DateOnly? ToDate { get; set; }
+    [Parameter] public EventCallback<DateOnly?> ToDateChanged { get; set; }
+    [Parameter] public string SearchPlaceholder { get; set; } = "ابحث بالاسم أو الوصف";
+    [Parameter] public string IdPrefix { get; set; } = "list-filter";
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private string SearchId => $"{IdPrefix}-search";
+    private string FromId => $"{IdPrefix}-from";
+    private string ToId => $"{IdPrefix}-to";
+
+    private Task SetSearchAsync(ChangeEventArgs args) => SearchTextChanged.InvokeAsync(args.Value?.ToString() ?? string.Empty);
+    private Task SetFromDateAsync(DateOnly? value) => FromDateChanged.InvokeAsync(value);
+    private Task SetToDateAsync(DateOnly? value) => ToDateChanged.InvokeAsync(value);
+}

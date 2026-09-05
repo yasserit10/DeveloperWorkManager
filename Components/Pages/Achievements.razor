@@ -1,0 +1,175 @@
+@page "/achievements"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@using System.ComponentModel.DataAnnotations
+@using System.Security.Claims
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject IJSRuntime JS
+
+<PageTitle>المنجزات | مدير العمل</PageTitle>
+
+<section class="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+    <div><p class="page-eyebrow">متابعة الإنجاز</p><h1 class="m-0 text-3xl font-black text-slate-900">@(isManager ? "سجل المنجزات" : "منجزاتي")</h1><p class="mb-0 mt-3 text-sm leading-7 text-slate-500">@(isManager ? "راجع ما سجله أعضاء الفريق من منجزات وتفاصيلها." : "سجّل منجزاتك فور إكمالها لتظهر لمسؤول الوحدة ضمن سجل موحد.")</p></div>
+    @if (!isManager) { <button type="button" class="btn-primary" @onclick="OpenForm"><i class="fa-solid fa-trophy" aria-hidden="true"></i> إضافة منجز</button> }
+</section>
+
+<PageToast Message="@message" IsError="@isError" />
+
+@if (selectedAchievement is not null)
+{
+    <dialog id="achievement-details-dialog" @ref="achievementDetailsDialog" @oncancel="CloseDetails" aria-modal="true" aria-labelledby="achievement-details-title" class="section-card achievement-details-modal">
+        <div class="achievement-details-header">
+            <div class="flex min-w-0 items-start gap-3">
+                <span class="achievement-details-icon"><i class="fa-solid fa-trophy" aria-hidden="true"></i></span>
+                <div class="min-w-0">
+                    <p class="m-0 text-xs font-extrabold text-brand-600">تفاصيل المنجز</p>
+                    <h2 id="achievement-details-title" class="mb-0 mt-1 text-xl font-black leading-8 text-slate-900">@selectedAchievement.Title</h2>
+                </div>
+            </div>
+            <button type="button" class="achievement-details-close" @onclick="CloseDetails" title="إغلاق" aria-label="إغلاق تفاصيل المنجز"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+        </div>
+
+        <div class="achievement-details-body">
+            <div class="achievement-details-summary">
+                <div class="achievement-details-summary-item">
+                    <span><i class="fa-solid fa-user" aria-hidden="true"></i> صاحب المنجز</span>
+                    <strong>@DisplayName(selectedAchievement.CreatedBy)</strong>
+                </div>
+                <div class="achievement-details-summary-item">
+                    <span><i class="fa-regular fa-calendar" aria-hidden="true"></i> تاريخ المنجز</span>
+                    <strong dir="ltr">@selectedAchievement.AchievementDate.ToString("yyyy/MM/dd")</strong>
+                </div>
+                <div class="achievement-details-summary-item">
+                    <span><i class="fa-regular fa-clock" aria-hidden="true"></i> وقت التسجيل</span>
+                    <strong dir="ltr">@selectedAchievement.CreatedAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</strong>
+                </div>
+                <div class="achievement-details-summary-item">
+                    <span><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> مصدر التسجيل</span>
+                    <strong>@(selectedAchievement.SourceWorkItem is null ? "منجز مسجل يدوياً" : "مكتمل تلقائياً من مهمة")</strong>
+                </div>
+            </div>
+
+            @if (selectedAchievement.SourceWorkItem is not null)
+            {
+                <div class="achievement-source-card">
+                    <div><span>المهمة الأصلية</span><strong>@selectedAchievement.SourceWorkItem.Title</strong></div>
+                    <div><span>المشروع</span><strong>@selectedAchievement.SourceWorkItem.Project.Name</strong></div>
+                </div>
+            }
+
+            <div class="achievement-details-text">
+                <div class="flex items-center gap-2 text-sm font-black text-slate-800"><i class="fa-solid fa-align-right text-brand-600" aria-hidden="true"></i><span>تفاصيل الإنجاز</span></div>
+                <p>@selectedAchievement.Details</p>
+            </div>
+        </div>
+
+        <div class="achievement-details-footer">
+            <button type="button" class="btn-primary" @onclick="CloseDetails"><i class="fa-solid fa-check" aria-hidden="true"></i> تم الاطلاع</button>
+        </div>
+    </dialog>
+}
+
+@if (!isManager && showForm)
+{
+    <section class="section-card form-reveal mt-6 p-6 sm:p-7">
+        <div class="mb-6 flex items-start justify-between gap-4"><div class="flex items-start gap-3"><span class="metric-icon h-10 w-10 shrink-0 bg-brand-50 text-brand-600"><i class="fa-solid fa-trophy" aria-hidden="true"></i></span><div><h2 class="m-0 text-lg font-black text-slate-800">إدخال منجز</h2><p class="mb-0 mt-1 text-xs font-bold leading-6 text-slate-400">أضف عنوان المنجز وتاريخه وتفاصيله ليكون جاهزاً للمراجعة والتقارير.</p></div></div><button type="button" class="shrink-0 text-slate-400 transition hover:text-slate-700" title="إغلاق النموذج" @onclick="CloseForm"><i class="fa-solid fa-xmark text-lg" aria-hidden="true"></i></button></div>
+        <EditForm Model="draft" OnValidSubmit="SaveAsync" class="grid gap-5 md:grid-cols-2"><DataAnnotationsValidator />
+            <div><label class="form-label-modern" for="achievement-title">المنجز</label><InputText id="achievement-title" class="form-control-modern pr-4" @bind-Value="draft.Title" placeholder="مثال: إكمال واجهة التقارير الشهرية" /><ValidationMessage For="() => draft.Title" class="validation-modern" /></div>
+            <div><label class="form-label-modern" for="achievement-date">تاريخ المنجز</label><AppDatePicker Id="achievement-date" @bind-Value="draft.AchievementDate" /></div>
+            <div class="md:col-span-2"><label class="form-label-modern" for="achievement-details">التفاصيل</label><InputTextArea id="achievement-details" class="form-control-modern min-h-32 pr-4" @bind-Value="draft.Details" placeholder="اكتب ما أُنجز، النتيجة، وأي ملاحظات مهمة..." /><ValidationMessage For="() => draft.Details" class="validation-modern" /></div>
+            <div class="flex gap-3 md:col-span-2"><button type="submit" class="btn-primary">حفظ المنجز <i class="fa-solid fa-check" aria-hidden="true"></i></button><button type="button" class="btn-secondary" @onclick="CloseForm">إلغاء</button></div>
+        </EditForm>
+    </section>
+}
+
+<ListSearchFilters @bind-SearchText="searchText" @bind-FromDate="fromDate" @bind-ToDate="toDate" IdPrefix="achievements-list" SearchPlaceholder="ابحث بعنوان المنجز أو تفاصيله" />
+
+<section class="section-card mt-6 overflow-hidden">
+    <div class="flex items-center justify-between border-b border-slate-100 px-6 py-5"><div><h2 class="m-0 text-base font-black text-slate-800">@(isManager ? "سجل منجزات الفريق" : "سجل منجزاتي")</h2><p class="mb-0 mt-1 text-xs font-bold text-slate-400">@FilteredAchievements.Count منجز، مرتب من الأحدث إلى الأقدم.</p></div><span class="metric-icon h-10 w-10 bg-brand-50 text-brand-600"><i class="fa-solid fa-trophy" aria-hidden="true"></i></span></div>
+    @if (FilteredAchievements.Count == 0)
+    {
+        <div class="empty-state"><div><i class="fa-solid fa-trophy text-3xl text-brand-600"></i><p class="mt-4 text-sm font-bold text-slate-400">@(isManager ? "لا توجد منجزات مسجلة حالياً." : "لم تسجل أي منجزات بعد.")</p></div></div>
+    }
+    else
+    {
+        <div class="overflow-x-auto"><table class="update-log-table achievements-table"><thead><tr><th>المنجز</th>@if (isManager) { <th>المبرمج</th> }<th>التاريخ</th><th>التفاصيل</th><th>وقت التسجيل</th><th>الإجراءات</th></tr></thead><tbody>@foreach (var achievement in FilteredAchievements) { <tr @key="achievement.Id"><td class="font-black text-slate-800"><span class="block truncate" title="@achievement.Title">@achievement.Title</span></td>@if (isManager) { <td><span class="block truncate">@DisplayName(achievement.CreatedBy)</span></td> }<td dir="ltr" class="whitespace-nowrap text-slate-500">@achievement.AchievementDate.ToString("yyyy/MM/dd")</td><td><span class="block truncate text-slate-500" title="@achievement.Details">@achievement.Details</span></td><td dir="ltr" class="whitespace-nowrap text-[11px] text-slate-400">@achievement.CreatedAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</td><td><button type="button" class="achievement-details-button" @onclick="() => OpenDetails(achievement)" aria-label="عرض تفاصيل @achievement.Title"><i class="fa-regular fa-eye" aria-hidden="true"></i><span>عرض التفاصيل</span></button></td></tr>}</tbody></table></div>
+    }
+</section>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+    private readonly List<Achievement> achievements = [];
+    private AchievementDraft draft = new();
+    private string? currentUserId;
+    private bool isManager;
+    private bool showForm;
+    private bool isError;
+    private string? message;
+    private Achievement? selectedAchievement;
+    private ElementReference achievementDetailsDialog;
+    private bool achievementDetailsDialogOpened;
+    private string searchText = string.Empty;
+    private DateOnly? fromDate;
+    private DateOnly? toDate;
+
+    private List<Achievement> FilteredAchievements => achievements.Where(x =>
+        (string.IsNullOrWhiteSpace(searchText) || x.Title.Contains(searchText, StringComparison.OrdinalIgnoreCase) || x.Details.Contains(searchText, StringComparison.OrdinalIgnoreCase) || DisplayName(x.CreatedBy).Contains(searchText, StringComparison.OrdinalIgnoreCase)) &&
+        (!fromDate.HasValue || x.AchievementDate >= fromDate.Value) &&
+        (!toDate.HasValue || x.AchievementDate <= toDate.Value)).ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = (await AuthenticationStateTask).User;
+        currentUserId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        isManager = user.IsInRole("UnitManager");
+        await LoadAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (selectedAchievement is not null && !achievementDetailsDialogOpened)
+        {
+            achievementDetailsDialogOpened = true;
+            await JS.InvokeVoidAsync("dwm.openModalDialog", achievementDetailsDialog);
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        achievements.Clear();
+        var query = db.Achievements.AsNoTracking()
+            .Include(x => x.CreatedBy)
+            .Include(x => x.SourceWorkItem)
+                .ThenInclude(x => x!.Project)
+            .AsQueryable();
+        if (!isManager) query = query.Where(x => x.CreatedById == currentUserId);
+        achievements.AddRange(await query.OrderByDescending(x => x.AchievementDate).ThenByDescending(x => x.CreatedAt).Take(200).ToListAsync());
+    }
+
+    private void OpenForm() { draft = new(); message = null; isError = false; showForm = true; }
+    private void CloseForm() => showForm = false;
+    private void OpenDetails(Achievement achievement) { selectedAchievement = achievement; achievementDetailsDialogOpened = false; }
+    private void CloseDetails() { selectedAchievement = null; achievementDetailsDialogOpened = false; }
+
+    private async Task SaveAsync()
+    {
+        if (isManager || string.IsNullOrWhiteSpace(currentUserId)) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.Achievements.Add(new Achievement { CreatedById = currentUserId, Title = draft.Title.Trim(), AchievementDate = draft.AchievementDate, Details = draft.Details.Trim() });
+        await db.SaveChangesAsync();
+        showForm = false;
+        isError = false;
+        message = "تم تسجيل المنجز بنجاح.";
+        await LoadAsync();
+    }
+
+    private static string DisplayName(ApplicationUser user) => string.IsNullOrWhiteSpace(user.FullName) ? user.UserName ?? "مستخدم" : user.FullName;
+
+    private sealed class AchievementDraft
+    {
+        [Required(ErrorMessage = "اكتب عنوان المنجز."), StringLength(300)] public string Title { get; set; } = string.Empty;
+        public DateOnly AchievementDate { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+        [Required(ErrorMessage = "اكتب تفاصيل المنجز."), StringLength(4000)] public string Details { get; set; } = string.Empty;
+    }
+}

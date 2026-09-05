@@ -1,0 +1,25 @@
+# Build and publish outputs
+bin/
+obj/
+artifacts/
+
+# JavaScript dependencies and generated styling input
+node_modules/
+wwwroot/css/tailwind.input.css
+
+# Local and production secrets
+.env
+.env.*
+!.env.example
+appsettings.Development.json
+appsettings.Production.json
+
+# IDE and operating-system files
+.vs/
+*.user
+*.suo
+*.db
+*.mdf
+*.ldf
+Thumbs.db
+.DS_Store

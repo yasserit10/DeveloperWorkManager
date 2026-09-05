@@ -1,0 +1,42 @@
+<div class="app-dropdown">
+    <button id="@Id" type="button" class="app-dropdown-trigger" aria-haspopup="listbox" aria-expanded="@isOpen" @onclick="Toggle">
+        <span class="truncate">@SelectedLabel</span>
+        <i class="fa-solid @(isOpen ? "fa-chevron-up" : "fa-chevron-down")" aria-hidden="true"></i>
+    </button>
+
+    @if (isOpen)
+    {
+        <div class="app-dropdown-menu" role="listbox" aria-labelledby="@Id">
+            @foreach (var option in Options)
+            {
+                <button type="button" class="app-dropdown-option @(option.Value == Value ? "selected" : string.Empty)" role="option" aria-selected="@(option.Value == Value)" @onclick="() => SelectAsync(option)">
+                    <span>@option.Label</span>
+                    @if (option.Value == Value)
+                    {
+                        <i class="fa-solid fa-check" aria-hidden="true"></i>
+                    }
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string? Id { get; set; }
+    [Parameter] public string Value { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public IEnumerable<AppDropdownOption> Options { get; set; } = [];
+    [Parameter] public string Placeholder { get; set; } = "اختر من القائمة";
+
+    private bool isOpen;
+    private string SelectedLabel => Options.FirstOrDefault(x => x.Value == Value)?.Label ?? Placeholder;
+
+    private void Toggle() => isOpen = !isOpen;
+
+    private async Task SelectAsync(AppDropdownOption option)
+    {
+        isOpen = false;
+        await ValueChanged.InvokeAsync(option.Value);
+    }
+}
+

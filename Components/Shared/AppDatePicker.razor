@@ -1,0 +1,112 @@
+@implements IDisposable
+@inject DatePickerPopoverState PopoverState
+
+<div class="app-date-picker">
+    <button id="@Id" type="button" class="app-date-trigger" aria-haspopup="dialog" aria-expanded="@IsOpen" @onclick="Toggle">
+        <span><i class="fa-regular fa-calendar" aria-hidden="true"></i>@DisplayValue</span>
+        <i class="fa-solid @(IsOpen ? "fa-chevron-up" : "fa-chevron-down")" aria-hidden="true"></i>
+    </button>
+
+    @if (IsOpen)
+    {
+        <section class="app-calendar" role="dialog" aria-label="اختيار التاريخ">
+            <header class="app-calendar-header">
+                <button type="button" class="app-calendar-nav" title="الشهر التالي" @onclick="NextMonth"><i class="fa-solid fa-chevron-right" aria-hidden="true"></i></button>
+                <strong>@MonthLabel</strong>
+                <button type="button" class="app-calendar-nav" title="الشهر السابق" @onclick="PreviousMonth"><i class="fa-solid fa-chevron-left" aria-hidden="true"></i></button>
+            </header>
+            <div class="app-calendar-weekdays">
+                @foreach (var day in WeekDays)
+                {
+                    <span>@day</span>
+                }
+            </div>
+            <div class="app-calendar-grid">
+                @for (var index = 0; index < 42; index++)
+                {
+                    var day = CalendarStart.AddDays(index);
+                    var isCurrentMonth = day.Month == visibleMonth.Month;
+                    var isSelected = HasSelectedValue && day == SelectedValue;
+                    var isToday = day == DateOnly.FromDateTime(DateTime.Today);
+                    <button type="button" class="app-calendar-day @(!isCurrentMonth ? "muted" : string.Empty) @(isSelected ? "selected" : string.Empty) @(isToday ? "today" : string.Empty)" aria-label="@day.ToString("yyyy/MM/dd")" @onclick="() => SelectDateAsync(day)">@day.Day</button>
+                }
+            </div>
+            <footer class="app-calendar-footer">
+                <button type="button" @onclick="SelectTodayAsync">اليوم</button>
+                @if (UsesOptionalValue && OptionalValue.HasValue)
+                {
+                    <button type="button" @onclick="ClearAsync">إزالة التاريخ</button>
+                }
+            </footer>
+        </section>
+    }
+</div>
+
+@code {
+    private static readonly string[] WeekDays = ["س", "ح", "ن", "ث", "ر", "خ", "ج"];
+    private static readonly string[] Months = ["كانون الثاني", "شباط", "آذار", "نيسان", "أيار", "حزيران", "تموز", "آب", "أيلول", "تشرين الأول", "تشرين الثاني", "كانون الأول"];
+    private DateOnly visibleMonth;
+
+    [Parameter] public string? Id { get; set; }
+    [Parameter] public DateOnly Value { get; set; }
+    [Parameter] public EventCallback<DateOnly> ValueChanged { get; set; }
+    [Parameter] public DateOnly? OptionalValue { get; set; }
+    [Parameter] public EventCallback<DateOnly?> OptionalValueChanged { get; set; }
+
+    private string PickerId => Id ?? "app-date-picker";
+    private bool IsOpen => PopoverState.IsOpen(PickerId);
+    private bool UsesOptionalValue => OptionalValueChanged.HasDelegate;
+    private bool HasSelectedValue => !UsesOptionalValue || OptionalValue.HasValue;
+    private DateOnly SelectedValue => UsesOptionalValue ? OptionalValue ?? DateOnly.FromDateTime(DateTime.Today) : Value;
+    private string DisplayValue => HasSelectedValue ? SelectedValue.ToString("yyyy/MM/dd") : "اختر التاريخ";
+    private string MonthLabel => $"{Months[visibleMonth.Month - 1]} {visibleMonth.Year}";
+    private DateOnly CalendarStart
+    {
+        get
+        {
+            var firstDay = new DateOnly(visibleMonth.Year, visibleMonth.Month, 1);
+            var offset = ((int)firstDay.DayOfWeek + 1) % 7;
+            return firstDay.AddDays(-offset);
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (!IsOpen) visibleMonth = new DateOnly(SelectedValue.Year, SelectedValue.Month, 1);
+    }
+
+    private void Toggle()
+    {
+        PopoverState.Toggle(PickerId);
+        if (IsOpen) visibleMonth = new DateOnly(SelectedValue.Year, SelectedValue.Month, 1);
+    }
+
+    private void PreviousMonth() => visibleMonth = visibleMonth.AddMonths(-1);
+    private void NextMonth() => visibleMonth = visibleMonth.AddMonths(1);
+
+    private async Task SelectDateAsync(DateOnly date)
+    {
+        PopoverState.Close(PickerId);
+        if (UsesOptionalValue)
+        {
+            await OptionalValueChanged.InvokeAsync(date);
+            return;
+        }
+
+        await ValueChanged.InvokeAsync(date);
+    }
+
+    private Task SelectTodayAsync() => SelectDateAsync(DateOnly.FromDateTime(DateTime.Today));
+
+    private async Task ClearAsync()
+    {
+        PopoverState.Close(PickerId);
+        await OptionalValueChanged.InvokeAsync(null);
+    }
+
+    protected override void OnInitialized() => PopoverState.Changed += OnPopoverStateChanged;
+
+    private void OnPopoverStateChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => PopoverState.Changed -= OnPopoverStateChanged;
+}
