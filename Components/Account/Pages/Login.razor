@@ -87,6 +87,7 @@
             return;
         }
 
+        ApplicationUser? account = null;
         SignInResult result;
         if (!string.IsNullOrEmpty(Input.Passkey?.CredentialJson))
         {
@@ -101,7 +102,7 @@
                 return;
             }
 
-            var account = await UserManager.FindByNameAsync(Input.UserName);
+            account = await UserManager.FindByNameAsync(Input.UserName);
             if (account?.IsArchived == true)
             {
                 errorMessage = "هذا الحساب مؤرشف. تواصل مع مدير النظام لإعادة تفعيله.";
@@ -116,13 +117,13 @@
         if (result.Succeeded)
         {
             Logger.LogInformation("User logged in.");
-            RedirectManager.RedirectTo(ReturnUrl);
+            RedirectManager.RedirectTo(await GetPostLoginDestinationAsync(account));
         }
         else if (result.RequiresTwoFactor)
         {
             RedirectManager.RedirectTo(
                 "Account/LoginWith2fa",
-                new() { ["returnUrl"] = ReturnUrl, ["rememberMe"] = Input.RememberMe });
+                new() { ["returnUrl"] = await GetPostLoginDestinationAsync(account), ["rememberMe"] = Input.RememberMe });
         }
         else if (result.IsLockedOut)
         {
@@ -133,6 +134,18 @@
         {
             errorMessage = "تعذر تسجيل الدخول. تحقق من اسم المستخدم وكلمة المرور.";
         }
+    }
+
+    private async Task<string?> GetPostLoginDestinationAsync(ApplicationUser? account)
+    {
+        if (!string.IsNullOrWhiteSpace(ReturnUrl) || account is null)
+        {
+            return ReturnUrl;
+        }
+
+        var isProgrammer = await UserManager.IsInRoleAsync(account, "Programmer");
+        var isUnitManager = await UserManager.IsInRoleAsync(account, "UnitManager");
+        return isProgrammer && !isUnitManager ? "leaderboard" : ReturnUrl;
     }
 
     private sealed class InputModel

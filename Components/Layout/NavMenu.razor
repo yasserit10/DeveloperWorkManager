@@ -48,8 +48,8 @@
             <span class="nav-icon"><i class="fa-solid fa-ranking-star" aria-hidden="true"></i></span> منصة التميز
         </NavLink>
     </AuthorizeView>
-    <AuthorizeView Roles="Programmer">
-        @if (programmerLeaderboardEnabled)
+    <AuthorizeView Roles="Programmer" Context="auth">
+        @if (programmerLeaderboardEnabled && !auth.User.IsInRole("UnitManager"))
         {
             <p class="nav-group-label">نظرة عامة</p>
             <NavLink class="nav-link" ActiveClass="active" href="leaderboard">
