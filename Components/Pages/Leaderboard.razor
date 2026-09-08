@@ -44,7 +44,7 @@ else
             {
                 <article class="podium-card @(leader.Rank == 1 ? "podium-rank-1" : leader.Rank == 2 ? "podium-rank-2" : "podium-rank-3")">
                     <div class="podium-medal"><span>@leader.Rank</span></div>
-                    <span class="podium-avatar">@Initials(leader.Name)</span>
+                    <span class="podium-avatar podium-emblem" aria-hidden="true"><i class="fa-solid fa-crown"></i></span>
                     <p class="podium-rank-label">@RankLabel(leader.Rank)</p>
                     <h2>@leader.Name</h2>
                     <div class="podium-stats"><span><i class="fa-solid fa-trophy" aria-hidden="true"></i> @leader.AchievementCount منجز</span><span><i class="fa-solid fa-circle-check" aria-hidden="true"></i> @leader.CompletedTaskCount مهمة</span></div>

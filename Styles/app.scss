@@ -396,6 +396,10 @@ $canvas: #f6f8fc;
   .podium-card h2 { @apply mb-0 mt-3 truncate text-base font-black text-slate-800; }
   .podium-rank-label { @apply mb-0 mt-3 text-xs font-extrabold; }
   .podium-avatar { @apply mx-auto grid h-16 w-16 place-items-center rounded-2xl text-lg font-black; }
+  .podium-emblem { position: relative; overflow: visible; isolation: isolate; }
+  .podium-emblem::before { content: ''; position: absolute; inset: -0.35rem; z-index: -1; border: 1px solid currentColor; border-radius: 1.2rem; opacity: .28; animation: podium-emblem-ring 2.4s ease-out infinite; }
+  .podium-emblem::after { content: '✦'; position: absolute; left: -0.42rem; top: -0.7rem; font-size: .78rem; line-height: 1; opacity: 0; animation: podium-emblem-spark 2.4s ease-in-out infinite; }
+  .podium-emblem i { animation: podium-emblem-float 2.4s ease-in-out infinite; filter: drop-shadow(0 5px 5px rgba(15, 23, 42, .16)); }
   .podium-medal { @apply absolute left-3 top-3 grid h-8 w-8 place-items-center rounded-full text-xs font-black; }
   .podium-stats { @apply mt-4 flex flex-col gap-2 text-xs font-bold text-slate-500; }
   .podium-stats span { @apply flex items-center justify-center gap-2; }
@@ -428,6 +432,10 @@ $canvas: #f6f8fc;
   .leaderboard-ranking-row strong { @apply truncate text-sm font-black text-slate-700; }
   .leaderboard-ranking-stat { @apply inline-flex items-center justify-end gap-2 whitespace-nowrap text-xs font-bold text-slate-500; }
   .leaderboard-ranking-stat i { @apply text-brand-500; }
+
+  @keyframes podium-emblem-float { 0%, 100% { transform: translateY(0) rotate(-3deg) scale(1); } 50% { transform: translateY(-4px) rotate(3deg) scale(1.08); } }
+  @keyframes podium-emblem-ring { 0% { transform: scale(.72); opacity: .42; } 72%, 100% { transform: scale(1.22); opacity: 0; } }
+  @keyframes podium-emblem-spark { 0%, 20% { transform: translate(0, 3px) scale(.5) rotate(0deg); opacity: 0; } 48% { opacity: .9; } 75%, 100% { transform: translate(-6px, -4px) scale(1.18) rotate(90deg); opacity: 0; } }
 }
 
 // Dark theme tokens keep the dashboard calm and readable in prolonged use.
@@ -740,7 +748,7 @@ html.is-page-entering .route-transition {
   .route-transition { animation: none; }
   html.is-page-leaving .page-content { animation: none; }
   .page-content { transition: none; }
-  .banter-loader__box { animation: none; }
+  .banter-loader__box, .podium-emblem::before, .podium-emblem::after, .podium-emblem i { animation: none; }
   .auth-loader-side .gel, .auth-loader-side .hex-brick { animation: none; }
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
 }
