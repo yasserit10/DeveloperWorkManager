@@ -42,7 +42,7 @@ else
         <section class="podium-stage mt-6" aria-label="أفضل ثلاثة مبرمجين">
             @foreach (var leader in leaders.Take(3))
             {
-                <article class="podium-card podium-rank-@leader.Rank">
+                <article class="podium-card @(leader.Rank == 1 ? "podium-rank-1" : leader.Rank == 2 ? "podium-rank-2" : "podium-rank-3")">
                     <div class="podium-medal"><span>@leader.Rank</span></div>
                     <span class="podium-avatar">@Initials(leader.Name)</span>
                     <p class="podium-rank-label">@RankLabel(leader.Rank)</p>
