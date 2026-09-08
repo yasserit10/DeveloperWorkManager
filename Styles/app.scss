@@ -581,6 +581,9 @@ html[data-theme="dark"] .podium-stats { color: #aebdd0 !important; }
 html[data-theme="dark"] .podium-rank-1 { background: linear-gradient(180deg, #282312 0%, #111e31 52%) !important; border-color: #8c7127 !important; }
 html[data-theme="dark"] .podium-rank-2 { background: linear-gradient(180deg, #182538 0%, #111e31 52%) !important; border-color: #536b87 !important; }
 html[data-theme="dark"] .podium-rank-3 { background: linear-gradient(180deg, #2d2019 0%, #111e31 52%) !important; border-color: #855b43 !important; }
+html[data-theme="dark"] .podium-rank-2 .podium-emblem { background: linear-gradient(135deg, #edf5ff 0%, #bed1e6 100%) !important; color: #3f617f !important; box-shadow: 0 0 0 4px #38516e, 0 0 0 6px rgba(190, 214, 239, .18), 0 12px 26px rgba(0, 0, 0, .3) !important; }
+html[data-theme="dark"] .podium-rank-2 .podium-emblem i { color: #3f617f !important; filter: drop-shadow(0 2px 2px rgba(255, 255, 255, .34)) !important; }
+html[data-theme="dark"] .podium-rank-2 .podium-emblem::after { color: #d9edff !important; }
 html[data-theme="dark"] .leaderboard-unavailable { border-color: #314760 !important; }
 html[data-theme="dark"] .leaderboard-ranking .section-card-head { border-color: #273852 !important; }
 html[data-theme="dark"] .leaderboard-ranking h2, html[data-theme="dark"] .leaderboard-ranking-row strong { color: #f3f7fc !important; }
