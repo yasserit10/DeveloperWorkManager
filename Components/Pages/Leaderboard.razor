@@ -40,7 +40,7 @@ else
     else
     {
         <section class="podium-stage mt-6" aria-label="أفضل ثلاثة مبرمجين">
-            @foreach (var leader in leaders)
+            @foreach (var leader in leaders.Take(3))
             {
                 <article class="podium-card podium-rank-@leader.Rank">
                     <div class="podium-medal"><span>@leader.Rank</span></div>
@@ -53,6 +53,31 @@ else
             }
         </section>
         <p class="leaderboard-footnote"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> تُحدَّث المنصة مباشرة من سجل المنجزات والمهام المكتملة في النظام.</p>
+
+        @if (leaders.Count > 3)
+        {
+            <section class="section-card leaderboard-ranking mt-6">
+                <div class="section-card-head">
+                    <div>
+                        <h2>باقي ترتيب المبرمجين</h2>
+                        <p>@(leaders.Count - 3) مبرمجين مرتبين بعد المراكز الثلاثة الأولى.</p>
+                    </div>
+                    <span class="leaderboard-ranking-icon"><i class="fa-solid fa-list-ol" aria-hidden="true"></i></span>
+                </div>
+                <div class="leaderboard-ranking-list">
+                    @foreach (var member in leaders.Skip(3))
+                    {
+                        <article class="leaderboard-ranking-row">
+                            <span class="leaderboard-ranking-number">@member.Rank</span>
+                            <span class="leaderboard-ranking-avatar">@Initials(member.Name)</span>
+                            <strong>@member.Name</strong>
+                            <span class="leaderboard-ranking-stat"><i class="fa-solid fa-trophy" aria-hidden="true"></i> @member.AchievementCount منجز</span>
+                            <span class="leaderboard-ranking-stat"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> @member.CompletedTaskCount مهمة مكتملة</span>
+                        </article>
+                    }
+                </div>
+            </section>
+        }
     }
 }
 
@@ -115,11 +140,9 @@ else
                 achievementCounts.GetValueOrDefault(x.Id),
                 completedTaskCounts.GetValueOrDefault(x.Id),
                 0))
-            .Where(x => x.AchievementCount > 0 || x.CompletedTaskCount > 0)
             .OrderByDescending(x => x.AchievementCount)
             .ThenByDescending(x => x.CompletedTaskCount)
             .ThenBy(x => x.Name)
-            .Take(3)
             .Select((x, index) => x with { Rank = index + 1 }));
         isLoading = false;
     }

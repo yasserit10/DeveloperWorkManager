@@ -391,8 +391,8 @@ $canvas: #f6f8fc;
   .leaderboard-hero-trophy { @apply absolute left-8 top-1/2 z-[1] hidden -translate-y-1/2 place-items-center rounded-3xl border border-white/20 bg-white/15 text-4xl text-amber-200 shadow-lg backdrop-blur sm:grid sm:h-24 sm:w-24; }
   .leaderboard-loading { min-height: 21rem; }
   .leaderboard-unavailable { border-color: #dbeafe; }
-  .podium-stage { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 1.1rem; max-width: 64rem; margin-inline: auto; }
-  .podium-card { @apply relative overflow-hidden rounded-3xl border bg-white px-4 pt-8 text-center shadow-soft; min-height: 18.5rem; }
+  .podium-stage { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 1.1rem; max-width: 64rem; margin-inline: auto; direction: ltr; }
+  .podium-card { @apply relative overflow-hidden rounded-3xl border bg-white px-4 pt-8 text-center shadow-soft; min-height: 18.5rem; direction: rtl; }
   .podium-card h2 { @apply mb-0 mt-3 truncate text-base font-black text-slate-800; }
   .podium-rank-label { @apply mb-0 mt-3 text-xs font-extrabold; }
   .podium-avatar { @apply mx-auto grid h-16 w-16 place-items-center rounded-2xl text-lg font-black; }
@@ -416,6 +416,18 @@ $canvas: #f6f8fc;
   .podium-rank-3 .podium-rank-label { @apply text-orange-700; }
   .podium-rank-3 .podium-step { background: linear-gradient(135deg, #b86d3a, #e6a06a); height: 4.25rem; }
   .leaderboard-footnote { @apply mx-auto mb-0 mt-5 flex max-w-2xl items-center justify-center gap-2 text-center text-xs font-bold leading-6 text-slate-400; }
+  .leaderboard-ranking { @apply overflow-hidden; }
+  .leaderboard-ranking .section-card-head { @apply flex items-center justify-between gap-4 border-b border-slate-100 px-6 py-5; }
+  .leaderboard-ranking h2 { @apply m-0 text-base font-black text-slate-800; }
+  .leaderboard-ranking .section-card-head p { @apply mb-0 mt-1 text-xs font-bold text-slate-400; }
+  .leaderboard-ranking-icon { @apply grid h-10 w-10 place-items-center rounded-xl bg-blue-50 text-brand-600; }
+  .leaderboard-ranking-list { @apply divide-y divide-slate-100; }
+  .leaderboard-ranking-row { @apply grid items-center gap-3 px-6 py-4; grid-template-columns: 2.4rem 2.8rem minmax(10rem, 1fr) auto auto; }
+  .leaderboard-ranking-number { @apply grid h-8 w-8 place-items-center rounded-full bg-slate-100 text-xs font-black text-slate-600; }
+  .leaderboard-ranking-avatar { @apply grid h-10 w-10 place-items-center rounded-xl bg-blue-50 text-sm font-black text-brand-600; }
+  .leaderboard-ranking-row strong { @apply truncate text-sm font-black text-slate-700; }
+  .leaderboard-ranking-stat { @apply inline-flex items-center justify-end gap-2 whitespace-nowrap text-xs font-bold text-slate-500; }
+  .leaderboard-ranking-stat i { @apply text-brand-500; }
 }
 
 // Dark theme tokens keep the dashboard calm and readable in prolonged use.
@@ -562,6 +574,12 @@ html[data-theme="dark"] .podium-rank-1 { background: linear-gradient(180deg, #28
 html[data-theme="dark"] .podium-rank-2 { background: linear-gradient(180deg, #182538 0%, #111e31 52%) !important; border-color: #536b87 !important; }
 html[data-theme="dark"] .podium-rank-3 { background: linear-gradient(180deg, #2d2019 0%, #111e31 52%) !important; border-color: #855b43 !important; }
 html[data-theme="dark"] .leaderboard-unavailable { border-color: #314760 !important; }
+html[data-theme="dark"] .leaderboard-ranking .section-card-head { border-color: #273852 !important; }
+html[data-theme="dark"] .leaderboard-ranking h2, html[data-theme="dark"] .leaderboard-ranking-row strong { color: #f3f7fc !important; }
+html[data-theme="dark"] .leaderboard-ranking .section-card-head p, html[data-theme="dark"] .leaderboard-ranking-stat { color: #aebdd0 !important; }
+html[data-theme="dark"] .leaderboard-ranking-icon, html[data-theme="dark"] .leaderboard-ranking-avatar { background: #17345d !important; color: #9fcfff !important; }
+html[data-theme="dark"] .leaderboard-ranking-list { border-color: #273852 !important; }
+html[data-theme="dark"] .leaderboard-ranking-number { background: #243752 !important; color: #dce7f5 !important; }
 
 @media (max-width: 640px) {
   .leaderboard-hero { padding: 1.5rem; }
@@ -572,6 +590,10 @@ html[data-theme="dark"] .leaderboard-unavailable { border-color: #314760 !import
   .podium-rank-2 { order: 2; }
   .podium-rank-3 { order: 3; }
   .podium-step, .podium-rank-1 .podium-step, .podium-rank-2 .podium-step, .podium-rank-3 .podium-step { height: 3.5rem; }
+  .leaderboard-ranking .section-card-head { padding: 1.25rem; }
+  .leaderboard-ranking-row { grid-template-columns: 2.2rem 2.5rem minmax(0, 1fr); padding: 1rem 1.25rem; }
+  .leaderboard-ranking-stat { grid-column: span 1; justify-content: start; }
+  .leaderboard-ranking-row strong { min-width: 0; }
 }
 html[data-theme="dark"] .notification-item:hover span span { color: #c2d0e3 !important; }
 html[data-theme="dark"] .notification-item:hover small { color: #91a5bf !important; }
