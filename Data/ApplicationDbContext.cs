@@ -15,6 +15,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<SystemNotification> Notifications => Set<SystemNotification>();
     public DbSet<PersonalNote> Notes => Set<PersonalNote>();
     public DbSet<WorkStateEntry> WorkStateEntries => Set<WorkStateEntry>();
+    public DbSet<WorkspaceSettings> WorkspaceSettings => Set<WorkspaceSettings>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -137,6 +138,11 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
             entity.HasIndex(x => new { x.CreatedById, x.IsCompleted, x.CreatedAt });
             entity.HasOne(x => x.CreatedBy).WithMany(x => x.Notes)
                 .HasForeignKey(x => x.CreatedById).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<WorkspaceSettings>(entity =>
+        {
+            entity.HasKey(x => x.Id);
         });
     }
 }

@@ -17,6 +17,23 @@
 
 <PageToast Message="@message" IsError="@isError" />
 
+<section class="section-card team-leaderboard-settings mt-6 p-5 sm:p-6">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div class="flex items-start gap-3">
+            <span class="leaderboard-setting-icon"><i class="fa-solid fa-trophy" aria-hidden="true"></i></span>
+            <div>
+                <h2 class="m-0 text-base font-black text-slate-800">منصة التميز للمبرمجين</h2>
+                <p class="mb-0 mt-1 text-xs font-bold leading-6 text-slate-400">تعرض أفضل ثلاثة مبرمجين بحسب المنجزات، ثم المهام المكتملة عند التعادل. تظهر للمبرمجين بدل رابط لوحة التحكم.</p>
+            </div>
+        </div>
+        <label class="leaderboard-visibility-toggle">
+            <input type="checkbox" checked="@leaderboardEnabled" @onchange="SetLeaderboardVisibilityAsync" aria-label="إظهار منصة التميز للمبرمجين" />
+            <span class="leaderboard-toggle-track" aria-hidden="true"><span></span></span>
+            <span>@(leaderboardEnabled ? "متاحة للمبرمجين" : "غير متاحة للمبرمجين")</span>
+        </label>
+    </div>
+</section>
+
 @if (showForm)
 {
     <dialog id="member-editor" @ref="memberEditorDialog" open="@(!isEditing)" @oncancel="CloseForm" aria-modal="@isEditing" aria-labelledby="member-editor-title" class="section-card form-reveal p-6 sm:p-7 @(isEditing ? "member-editor-modal" : "member-editor-inline")">
@@ -59,6 +76,7 @@
     private ElementReference memberEditorDialog;
     private string? editingMemberId;
     private bool isError;
+    private bool leaderboardEnabled;
     private string? message;
     private bool isEditing => !string.IsNullOrWhiteSpace(editingMemberId);
     private string searchText = string.Empty;
@@ -70,7 +88,11 @@
         (!toDate.HasValue || DateOnly.FromDateTime(x.CreatedAt) <= toDate.Value)).ToList();
     private static readonly AppDropdownOption[] RoleOptions = [new("Programmer", "مبرمج"), new("ReportViewer", "قارئ التقارير"), new("UnitManager", "مدير الوحدة")];
 
-    protected override async Task OnInitializedAsync() => await LoadAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadLeaderboardSettingAsync();
+        await LoadAsync();
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -91,6 +113,35 @@
             members.Add(new MemberView(user.Id, user.UserName ?? string.Empty, string.IsNullOrWhiteSpace(user.FullName) ? user.UserName ?? "مستخدم" : user.FullName, user.IsArchived, user.AssignedWorkItems.Count, user.CreatedAt, (await UserManager.GetRolesAsync(user)).ToList()));
         }
         isLoading = false;
+    }
+
+    private async Task LoadLeaderboardSettingAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        leaderboardEnabled = await db.WorkspaceSettings.AsNoTracking()
+            .Select(x => x.IsProgrammerLeaderboardEnabled)
+            .FirstOrDefaultAsync();
+    }
+
+    private async Task SetLeaderboardVisibilityAsync(ChangeEventArgs args)
+    {
+        var enabled = args.Value is bool value && value;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var settings = await db.WorkspaceSettings.SingleOrDefaultAsync();
+        if (settings is null)
+        {
+            settings = new WorkspaceSettings { IsProgrammerLeaderboardEnabled = enabled };
+            db.WorkspaceSettings.Add(settings);
+        }
+        else
+        {
+            settings.IsProgrammerLeaderboardEnabled = enabled;
+        }
+
+        await db.SaveChangesAsync();
+        leaderboardEnabled = enabled;
+        isError = false;
+        message = enabled ? "تم إظهار منصة التميز للمبرمجين." : "تم إخفاء منصة التميز عن المبرمجين.";
     }
 
     private void OpenForm() { draft = new(); editingMemberId = null; editDialogOpened = false; message = null; showForm = true; }

@@ -369,6 +369,53 @@ $canvas: #f6f8fc;
   .app-calendar-day.selected { @apply bg-brand-600 text-white shadow-md shadow-blue-200; }
   .app-calendar-footer { @apply mt-3 border-t border-slate-100 pt-2; }
   .app-calendar-footer button { @apply w-full rounded-lg py-2 text-xs font-extrabold text-brand-600; transition: background-color 160ms ease; }
+
+  .team-leaderboard-settings { background: linear-gradient(135deg, #ffffff 0%, #f8fbff 58%, #fffaf0 100%); }
+  .leaderboard-setting-icon { @apply grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-amber-50 text-amber-600; }
+  .leaderboard-visibility-toggle { @apply inline-flex shrink-0 items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-extrabold text-slate-600 shadow-sm; }
+  .leaderboard-visibility-toggle input { @apply sr-only; }
+  .leaderboard-toggle-track { @apply relative block h-6 w-11 rounded-full bg-slate-200 transition-colors duration-200; }
+  .leaderboard-toggle-track span { @apply absolute right-1 top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200; }
+  .leaderboard-visibility-toggle input:checked + .leaderboard-toggle-track { @apply bg-brand-600; }
+  .leaderboard-visibility-toggle input:checked + .leaderboard-toggle-track span { transform: translateX(-1.25rem); }
+  .leaderboard-visibility-toggle:has(input:focus-visible) { @apply ring-4 ring-blue-100; }
+
+  .leaderboard-hero { @apply relative overflow-hidden rounded-3xl border border-blue-100 px-6 py-7 text-white shadow-[0_24px_54px_rgba(30,99,220,.20)] sm:px-8; background: linear-gradient(125deg, #123d88 0%, #246bea 55%, #56a3ff 100%); }
+  .leaderboard-hero::before, .leaderboard-hero::after { content: ''; position: absolute; border: 1px solid rgba(255,255,255,.22); border-radius: 999px; pointer-events: none; }
+  .leaderboard-hero::before { height: 15rem; width: 15rem; left: -5rem; top: -8rem; }
+  .leaderboard-hero::after { height: 11rem; width: 11rem; right: 4rem; bottom: -8rem; }
+  .leaderboard-hero-copy { @apply relative z-[1] max-w-2xl; }
+  .leaderboard-eyebrow { @apply mb-3 flex items-center gap-2 text-sm font-extrabold text-blue-100; }
+  .leaderboard-hero h1 { @apply m-0 text-3xl font-black tracking-tight sm:text-4xl; }
+  .leaderboard-hero-copy > p:last-child { @apply mb-0 mt-3 max-w-xl text-sm font-bold leading-7 text-blue-50; }
+  .leaderboard-hero-trophy { @apply absolute left-8 top-1/2 z-[1] hidden -translate-y-1/2 place-items-center rounded-3xl border border-white/20 bg-white/15 text-4xl text-amber-200 shadow-lg backdrop-blur sm:grid sm:h-24 sm:w-24; }
+  .leaderboard-loading { min-height: 21rem; }
+  .leaderboard-unavailable { border-color: #dbeafe; }
+  .podium-stage { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 1.1rem; max-width: 64rem; margin-inline: auto; }
+  .podium-card { @apply relative overflow-hidden rounded-3xl border bg-white px-4 pt-8 text-center shadow-soft; min-height: 18.5rem; }
+  .podium-card h2 { @apply mb-0 mt-3 truncate text-base font-black text-slate-800; }
+  .podium-rank-label { @apply mb-0 mt-3 text-xs font-extrabold; }
+  .podium-avatar { @apply mx-auto grid h-16 w-16 place-items-center rounded-2xl text-lg font-black; }
+  .podium-medal { @apply absolute left-3 top-3 grid h-8 w-8 place-items-center rounded-full text-xs font-black; }
+  .podium-stats { @apply mt-4 flex flex-col gap-2 text-xs font-bold text-slate-500; }
+  .podium-stats span { @apply flex items-center justify-center gap-2; }
+  .podium-step { @apply mt-5 grid place-items-center rounded-t-2xl text-2xl font-black text-white; height: 4rem; }
+  .podium-rank-1 { grid-column: 2; order: 2; border-color: #f7d778; padding-top: 2.5rem; min-height: 22.25rem; background: linear-gradient(180deg, #fffdf4 0%, #ffffff 46%); }
+  .podium-rank-1 .podium-avatar { @apply bg-amber-100 text-amber-700 ring-4 ring-amber-50; }
+  .podium-rank-1 .podium-medal { @apply bg-amber-400 text-amber-950; }
+  .podium-rank-1 .podium-rank-label { @apply text-amber-700; }
+  .podium-rank-1 .podium-step { background: linear-gradient(135deg, #e8a817, #f8cf55); height: 7.75rem; }
+  .podium-rank-2 { grid-column: 1; order: 1; border-color: #cbd5e1; background: linear-gradient(180deg, #f8fafc 0%, #ffffff 46%); }
+  .podium-rank-2 .podium-avatar { @apply bg-slate-200 text-slate-600 ring-4 ring-slate-100; }
+  .podium-rank-2 .podium-medal { @apply bg-slate-300 text-slate-700; }
+  .podium-rank-2 .podium-rank-label { @apply text-slate-600; }
+  .podium-rank-2 .podium-step { background: linear-gradient(135deg, #93a4b9, #cbd5e1); height: 5.75rem; }
+  .podium-rank-3 { grid-column: 3; order: 3; border-color: #e7b58b; background: linear-gradient(180deg, #fffaf7 0%, #ffffff 46%); }
+  .podium-rank-3 .podium-avatar { @apply bg-orange-100 text-orange-700 ring-4 ring-orange-50; }
+  .podium-rank-3 .podium-medal { @apply bg-orange-300 text-orange-950; }
+  .podium-rank-3 .podium-rank-label { @apply text-orange-700; }
+  .podium-rank-3 .podium-step { background: linear-gradient(135deg, #b86d3a, #e6a06a); height: 4.25rem; }
+  .leaderboard-footnote { @apply mx-auto mb-0 mt-5 flex max-w-2xl items-center justify-center gap-2 text-center text-xs font-bold leading-6 text-slate-400; }
 }
 
 // Dark theme tokens keep the dashboard calm and readable in prolonged use.
@@ -503,6 +550,29 @@ html[data-theme="dark"] .notification-item:hover { background: #14243a !importan
 html[data-theme="dark"] .notification-item.unread:hover { background: #17345d !important; }
 html[data-theme="dark"] .notification-item:hover .notification-item-icon { background: #173b68 !important; color: #9fcfff !important; }
 html[data-theme="dark"] .notification-item:hover strong { color: #f3f7fc !important; }
+html[data-theme="dark"] .team-leaderboard-settings { background: linear-gradient(135deg, #111e31 0%, #112743 60%, #2f2917 100%) !important; border-color: #314760 !important; }
+html[data-theme="dark"] .leaderboard-visibility-toggle { background: #0d1828 !important; border-color: #314760 !important; color: #dce7f5 !important; }
+html[data-theme="dark"] .leaderboard-toggle-track { background: #3b4b61 !important; }
+html[data-theme="dark"] .leaderboard-visibility-toggle input:checked + .leaderboard-toggle-track { background: #2563eb !important; }
+html[data-theme="dark"] .leaderboard-hero { border-color: #34598a !important; background: linear-gradient(125deg, #122748 0%, #1e519e 58%, #337fce 100%) !important; box-shadow: 0 24px 54px rgba(0, 0, 0, .32) !important; }
+html[data-theme="dark"] .podium-card { background: #111e31 !important; border-color: #314760 !important; box-shadow: none !important; }
+html[data-theme="dark"] .podium-card h2 { color: #f3f7fc !important; }
+html[data-theme="dark"] .podium-stats { color: #aebdd0 !important; }
+html[data-theme="dark"] .podium-rank-1 { background: linear-gradient(180deg, #282312 0%, #111e31 52%) !important; border-color: #8c7127 !important; }
+html[data-theme="dark"] .podium-rank-2 { background: linear-gradient(180deg, #182538 0%, #111e31 52%) !important; border-color: #536b87 !important; }
+html[data-theme="dark"] .podium-rank-3 { background: linear-gradient(180deg, #2d2019 0%, #111e31 52%) !important; border-color: #855b43 !important; }
+html[data-theme="dark"] .leaderboard-unavailable { border-color: #314760 !important; }
+
+@media (max-width: 640px) {
+  .leaderboard-hero { padding: 1.5rem; }
+  .leaderboard-hero-trophy { display: none; }
+  .podium-stage { grid-template-columns: 1fr; gap: 1rem; }
+  .podium-card, .podium-rank-1, .podium-rank-2, .podium-rank-3 { grid-column: 1; min-height: auto; }
+  .podium-rank-1 { order: 1; }
+  .podium-rank-2 { order: 2; }
+  .podium-rank-3 { order: 3; }
+  .podium-step, .podium-rank-1 .podium-step, .podium-rank-2 .podium-step, .podium-rank-3 .podium-step { height: 3.5rem; }
+}
 html[data-theme="dark"] .notification-item:hover span span { color: #c2d0e3 !important; }
 html[data-theme="dark"] .notification-item:hover small { color: #91a5bf !important; }
 html[data-theme="dark"] .notification-list { border-color: #273852 !important; }

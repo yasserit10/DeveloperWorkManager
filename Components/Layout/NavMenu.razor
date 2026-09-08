@@ -43,6 +43,20 @@
             <span class="nav-icon"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i></span> لوحة التحكم
         </NavLink>
     </AuthorizeView>
+    <AuthorizeView Roles="UnitManager">
+        <NavLink class="nav-link" ActiveClass="active" href="leaderboard">
+            <span class="nav-icon"><i class="fa-solid fa-ranking-star" aria-hidden="true"></i></span> منصة التميز
+        </NavLink>
+    </AuthorizeView>
+    <AuthorizeView Roles="Programmer">
+        @if (programmerLeaderboardEnabled)
+        {
+            <p class="nav-group-label">نظرة عامة</p>
+            <NavLink class="nav-link" ActiveClass="active" href="leaderboard">
+                <span class="nav-icon"><i class="fa-solid fa-ranking-star" aria-hidden="true"></i></span> منصة التميز
+            </NavLink>
+        }
+    </AuthorizeView>
 
     <p class="nav-group-label">إدارة العمل</p>
     <AuthorizeView Roles="UnitManager">
@@ -100,6 +114,7 @@
 @code {
     private string? currentUrl;
     private string? fullName;
+    private bool programmerLeaderboardEnabled;
 
     private string DisplayName(System.Security.Claims.ClaimsPrincipal user) =>
         string.IsNullOrWhiteSpace(fullName) ? user.Identity?.Name ?? "مستخدم النظام" : fullName;
@@ -123,6 +138,9 @@
                 .AsNoTracking()
                 .Where(x => x.Id == userId)
                 .Select(x => x.FullName)
+                .FirstOrDefaultAsync();
+            programmerLeaderboardEnabled = await db.WorkspaceSettings.AsNoTracking()
+                .Select(x => x.IsProgrammerLeaderboardEnabled)
                 .FirstOrDefaultAsync();
         }
     }

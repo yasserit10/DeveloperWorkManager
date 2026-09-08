@@ -1,0 +1,130 @@
+@page "/leaderboard"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@using System.Security.Claims
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+
+<PageTitle>منصة التميز | مدير العمل</PageTitle>
+
+@if (isLoading)
+{
+    <section class="leaderboard-hero leaderboard-loading mt-4"><div class="h-12 w-48 animate-pulse rounded-xl bg-white/30"></div><div class="mt-8 h-72 w-full animate-pulse rounded-3xl bg-white/20"></div></section>
+}
+else if (!canView)
+{
+    <section class="section-card leaderboard-unavailable mt-6 p-8 text-center">
+        <span class="leaderboard-setting-icon mx-auto"><i class="fa-solid fa-lock" aria-hidden="true"></i></span>
+        <h1 class="mb-0 mt-5 text-xl font-black text-slate-800">منصة التميز غير متاحة حاليًا</h1>
+        <p class="mb-0 mt-2 text-sm font-bold leading-7 text-slate-400">يمكن لمدير الوحدة تفعيل عرضها للمبرمجين من صفحة فريق البرمجة.</p>
+    </section>
+}
+else
+{
+    <section class="leaderboard-hero mt-2">
+        <div class="leaderboard-hero-copy">
+            <p class="leaderboard-eyebrow"><i class="fa-solid fa-ranking-star" aria-hidden="true"></i> لوحة التقدير</p>
+            <h1>منصة التميز</h1>
+            <p>نحتفي بأصحاب الأثر الأعلى في الفريق. الترتيب حسب عدد المنجزات، ثم المهام المكتملة عند التعادل.</p>
+        </div>
+        <span class="leaderboard-hero-trophy"><i class="fa-solid fa-trophy" aria-hidden="true"></i></span>
+    </section>
+
+    @if (leaders.Count == 0)
+    {
+        <section class="section-card leaderboard-unavailable mt-6 p-8 text-center">
+            <span class="leaderboard-setting-icon mx-auto"><i class="fa-solid fa-trophy" aria-hidden="true"></i></span>
+            <h2 class="mb-0 mt-5 text-lg font-black text-slate-800">بانتظار أول منجز</h2>
+            <p class="mb-0 mt-2 text-sm font-bold text-slate-400">ستظهر منصة الفائزين عند وجود منجزات أو مهام مكتملة لأعضاء الفريق.</p>
+        </section>
+    }
+    else
+    {
+        <section class="podium-stage mt-6" aria-label="أفضل ثلاثة مبرمجين">
+            @foreach (var leader in leaders)
+            {
+                <article class="podium-card podium-rank-@leader.Rank">
+                    <div class="podium-medal"><span>@leader.Rank</span></div>
+                    <span class="podium-avatar">@Initials(leader.Name)</span>
+                    <p class="podium-rank-label">@RankLabel(leader.Rank)</p>
+                    <h2>@leader.Name</h2>
+                    <div class="podium-stats"><span><i class="fa-solid fa-trophy" aria-hidden="true"></i> @leader.AchievementCount منجز</span><span><i class="fa-solid fa-circle-check" aria-hidden="true"></i> @leader.CompletedTaskCount مهمة</span></div>
+                    <div class="podium-step"><span>@leader.Rank</span></div>
+                </article>
+            }
+        </section>
+        <p class="leaderboard-footnote"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> تُحدَّث المنصة مباشرة من سجل المنجزات والمهام المكتملة في النظام.</p>
+    }
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+    private readonly List<LeaderboardMember> leaders = [];
+    private bool isLoading = true;
+    private bool canView;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = (await AuthenticationStateTask).User;
+        var isProgrammer = user.IsInRole("Programmer");
+        var isPrivileged = user.IsInRole("UnitManager") || user.IsInRole("ReportViewer");
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var isEnabledForProgrammers = await db.WorkspaceSettings.AsNoTracking()
+            .Select(x => x.IsProgrammerLeaderboardEnabled)
+            .FirstOrDefaultAsync();
+        canView = isPrivileged || !isProgrammer || isEnabledForProgrammers;
+        if (!canView)
+        {
+            isLoading = false;
+            return;
+        }
+
+        var programmerRoleId = await db.Roles.AsNoTracking()
+            .Where(x => x.Name == "Programmer")
+            .Select(x => x.Id)
+            .SingleOrDefaultAsync();
+        if (string.IsNullOrWhiteSpace(programmerRoleId))
+        {
+            isLoading = false;
+            return;
+        }
+
+        var programmerIds = await db.UserRoles.AsNoTracking()
+            .Where(x => x.RoleId == programmerRoleId)
+            .Select(x => x.UserId)
+            .ToListAsync();
+        var achievementCounts = await db.Achievements.AsNoTracking()
+            .Where(x => programmerIds.Contains(x.CreatedById))
+            .GroupBy(x => x.CreatedById)
+            .Select(x => new { UserId = x.Key, Count = x.Count() })
+            .ToDictionaryAsync(x => x.UserId, x => x.Count);
+        var completedTaskCounts = await db.WorkItems.AsNoTracking()
+            .Where(x => programmerIds.Contains(x.AssignedToId) && x.Status == WorkStatus.Completed)
+            .GroupBy(x => x.AssignedToId)
+            .Select(x => new { UserId = x.Key, Count = x.Count() })
+            .ToDictionaryAsync(x => x.UserId, x => x.Count);
+        var programmers = await db.Users.AsNoTracking()
+            .Where(x => programmerIds.Contains(x.Id) && !x.IsArchived)
+            .Select(x => new { x.Id, x.FullName, x.UserName })
+            .ToListAsync();
+
+        leaders.AddRange(programmers
+            .Select(x => new LeaderboardMember(
+                x.Id,
+                string.IsNullOrWhiteSpace(x.FullName) ? x.UserName ?? "مستخدم" : x.FullName,
+                achievementCounts.GetValueOrDefault(x.Id),
+                completedTaskCounts.GetValueOrDefault(x.Id),
+                0))
+            .Where(x => x.AchievementCount > 0 || x.CompletedTaskCount > 0)
+            .OrderByDescending(x => x.AchievementCount)
+            .ThenByDescending(x => x.CompletedTaskCount)
+            .ThenBy(x => x.Name)
+            .Take(3)
+            .Select((x, index) => x with { Rank = index + 1 }));
+        isLoading = false;
+    }
+
+    private static string Initials(string name) => string.Concat(name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(x => x[0]));
+    private static string RankLabel(int rank) => rank switch { 1 => "المركز الأول", 2 => "المركز الثاني", 3 => "المركز الثالث", _ => "ضمن التميز" };
+    private sealed record LeaderboardMember(string Id, string Name, int AchievementCount, int CompletedTaskCount, int Rank);
+}
