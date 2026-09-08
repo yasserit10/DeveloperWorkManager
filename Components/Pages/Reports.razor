@@ -139,9 +139,9 @@ else
     }
     else
     {
-        <h2>إنجاز @SelectedPrintMemberName</h2>
-        @if (!SelectedPrintActivities.Any()) { <p class="print-empty">لا توجد أنشطة مسجلة لهذا المبرمج ضمن الفترة المحددة.</p> }
-        else { <table><thead><tr><th>المهمة</th><th>النشاط</th><th>الساعات</th><th>التاريخ</th></tr></thead><tbody>@foreach (var item in SelectedPrintActivities) { <tr><td>@item.WorkItem.Title</td><td>@item.Summary</td><td>@(item.HoursSpent?.ToString("0.##") ?? "—")</td><td dir="ltr">@item.CreatedAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</td></tr> }</tbody></table> }
+        <h2>منجزات @SelectedPrintMemberName</h2>
+        @if (!SelectedPrintAchievements.Any()) { <p class="print-empty">لا توجد منجزات مسجلة لهذا المبرمج ضمن الفترة المحددة.</p> }
+        else { <table><thead><tr><th>المنجز</th><th>التفاصيل</th><th>المشروع</th><th>تاريخ المنجز</th></tr></thead><tbody>@foreach (var item in SelectedPrintAchievements) { <tr><td>@item.Title</td><td>@item.Details</td><td>@(item.SourceWorkItem?.Project.Name ?? "منجز يدوي")</td><td dir="ltr">@item.AchievementDate.ToString("yyyy/MM/dd")</td></tr> }</tbody></table> }
     }
     <footer>تقرير مُنشأ من نظام مدير العمل</footer>
 </section>
@@ -156,6 +156,7 @@ else
     private readonly List<WorkProject> projects = [];
     private readonly List<ReportMember> printMembers = [];
     private readonly List<WorkItem> completedWorkItems = [];
+    private readonly List<Achievement> achievements = [];
     private ReportFilter filter = new() { From = DateOnly.FromDateTime(DateTime.Today.AddDays(-29)), To = DateOnly.FromDateTime(DateTime.Today) };
     private bool isLoading = true;
     private string? message;
@@ -173,10 +174,10 @@ else
     private IEnumerable<AppDropdownOption> ProjectOptions => [new("0", "كل المشاريع"), .. projects.Select(x => new AppDropdownOption(x.Id.ToString(), x.Name))];
     private IEnumerable<AppDropdownOption> PrintScopeOptions => [new("team", "إنجاز كل المبرمجين"), new("member", "إنجاز مبرمج محدد"), new("completed", "المهام المكتملة")];
     private IEnumerable<AppDropdownOption> PrintMemberOptions => printMembers.Select(x => new AppDropdownOption(x.Id, x.Name));
-    private IEnumerable<WorkUpdate> SelectedPrintActivities => updates.Where(x => x.CreatedById == printMemberId);
+    private IEnumerable<Achievement> SelectedPrintAchievements => achievements.Where(x => x.CreatedById == printMemberId);
     private string SelectedPrintMemberName => printMembers.FirstOrDefault(x => x.Id == printMemberId)?.Name ?? "المبرمج";
     private string PrintProjectName => filter.ProjectId > 0 ? projects.FirstOrDefault(x => x.Id == filter.ProjectId)?.Name ?? "المشروع المحدد" : "كل المشاريع";
-    private string PrintTitle => printScope switch { "member" => "تقرير إنجاز مبرمج", "completed" => "تقرير المهام المكتملة", _ => "تقرير إنجاز الفريق" };
+    private string PrintTitle => printScope switch { "member" => "تقرير منجزات مبرمج", "completed" => "تقرير المهام المكتملة", _ => "تقرير إنجاز الفريق" };
 
     protected override async Task OnInitializedAsync() => await LoadReport();
 
@@ -200,6 +201,25 @@ else
                                          orderby user.FullName, user.UserName
                                          select new ReportMember(user.Id, string.IsNullOrWhiteSpace(user.FullName) ? user.UserName ?? "مستخدم" : user.FullName)).ToListAsync());
         }
+        achievements.Clear();
+        var achievementsQuery = db.Achievements.AsNoTracking()
+            .Include(x => x.SourceWorkItem)
+                .ThenInclude(x => x!.Project)
+            .AsQueryable()
+            .Where(x => x.AchievementDate >= filter.From && x.AchievementDate <= filter.To);
+        if (filter.ProjectId > 0)
+        {
+            achievementsQuery = achievementsQuery.Where(x => x.SourceWorkItem != null && x.SourceWorkItem.ProjectId == filter.ProjectId);
+        }
+        if (!string.IsNullOrWhiteSpace(filter.SearchText))
+        {
+            var term = filter.SearchText.Trim();
+            achievementsQuery = achievementsQuery.Where(x => x.Title.Contains(term) || x.Details.Contains(term));
+        }
+        achievements.AddRange(await achievementsQuery
+            .OrderByDescending(x => x.AchievementDate)
+            .ThenByDescending(x => x.CreatedAt)
+            .ToListAsync());
         updates.Clear();
         var updatesQuery = db.WorkUpdates.AsNoTracking().Include(x => x.WorkItem).Include(x => x.CreatedBy).Where(x => x.CreatedAt >= from && x.CreatedAt < to);
         if (filter.ProjectId > 0) updatesQuery = updatesQuery.Where(x => x.WorkItem.ProjectId == filter.ProjectId);
