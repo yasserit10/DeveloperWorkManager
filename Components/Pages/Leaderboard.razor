@@ -3,6 +3,7 @@
 @rendermode InteractiveServer
 @using System.Security.Claims
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject NavigationManager NavigationManager
 
 <PageTitle>منصة التميز | مدير العمل</PageTitle>
 
@@ -100,7 +101,7 @@ else
         canView = isPrivileged || !isProgrammer || isEnabledForProgrammers;
         if (!canView)
         {
-            isLoading = false;
+            NavigationManager.NavigateTo("updates", replace: true);
             return;
         }
 

@@ -1,7 +1,8 @@
 @page "/"
-@attribute [Authorize(Roles = "UnitManager,ReportViewer")]
+@attribute [Authorize]
 @rendermode InteractiveServer
 @inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject NavigationManager NavigationManager
 
 <PageTitle>لوحة التحكم | مدير العمل</PageTitle>
 
@@ -61,6 +62,7 @@ else
 }
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
     private bool isLoading = true;
     private int totalTasks;
     private int inProgress;
@@ -73,6 +75,22 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        var user = (await AuthenticationStateTask).User;
+        var isProgrammer = user.IsInRole("Programmer");
+        var isUnitManager = user.IsInRole("UnitManager");
+
+        if (isProgrammer && !isUnitManager)
+        {
+            await using var settingsDb = await DbFactory.CreateDbContextAsync();
+            var isLeaderboardEnabled = await settingsDb.WorkspaceSettings
+                .AsNoTracking()
+                .Select(x => x.IsProgrammerLeaderboardEnabled)
+                .FirstOrDefaultAsync();
+
+            NavigationManager.NavigateTo(isLeaderboardEnabled ? "leaderboard" : "updates", replace: true);
+            return;
+        }
+
         await using var db = await DbFactory.CreateDbContextAsync();
         var tasks = await db.WorkItems.AsNoTracking().Where(x => !x.Project.IsArchived).ToListAsync();
         totalTasks = tasks.Count;

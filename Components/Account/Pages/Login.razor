@@ -7,6 +7,7 @@
 
 @inject UserManager<ApplicationUser> UserManager
 @inject SignInManager<ApplicationUser> SignInManager
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
 @inject ILogger<Login> Logger
 @inject NavigationManager NavigationManager
 @inject IdentityRedirectManager RedirectManager
@@ -138,15 +139,37 @@
 
     private async Task<string?> GetPostLoginDestinationAsync(ApplicationUser? account)
     {
-        if (!string.IsNullOrWhiteSpace(ReturnUrl) || account is null)
+        // A request for the root path is the standard unauthenticated entry point.
+        // It must not send programmers to the role-protected dashboard after sign-in.
+        if (!string.IsNullOrWhiteSpace(ReturnUrl) && !IsRootReturnUrl(ReturnUrl))
         {
             return ReturnUrl;
         }
 
+        if (account is null)
+        {
+            return "updates";
+        }
+
         var isProgrammer = await UserManager.IsInRoleAsync(account, "Programmer");
         var isUnitManager = await UserManager.IsInRoleAsync(account, "UnitManager");
-        return isProgrammer && !isUnitManager ? "leaderboard" : ReturnUrl;
+        if (!isProgrammer || isUnitManager)
+        {
+            return "/";
+        }
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var isLeaderboardEnabled = await db.WorkspaceSettings
+            .AsNoTracking()
+            .Select(x => x.IsProgrammerLeaderboardEnabled)
+            .FirstOrDefaultAsync();
+
+        return isLeaderboardEnabled ? "leaderboard" : "updates";
     }
+
+    private static bool IsRootReturnUrl(string returnUrl) =>
+        returnUrl is "/" or "" ||
+        Uri.TryCreate(returnUrl, UriKind.Relative, out var uri) && uri.OriginalString is "/" or "";
 
     private sealed class InputModel
     {
