@@ -9,6 +9,7 @@ using DeveloperWorkManager.Components;
 using DeveloperWorkManager.Components.Account;
 using DeveloperWorkManager.Components.Shared;
 using DeveloperWorkManager.Data;
+using ClosedXML.Excel;
 using QuestPDF.Infrastructure;
 using QuestPDF.Fluent;
 
@@ -123,7 +124,7 @@ app.MapGet("/api/notifications/unread", [Authorize] async (ClaimsPrincipal user,
     return Results.Ok(notifications);
 });
 
-app.MapGet("/reports/export", [Authorize(Roles = "UnitManager,ReportViewer")] async (int? projectId, string? search, DateOnly? from, DateOnly? to, IDbContextFactory<ApplicationDbContext> dbFactory) =>
+app.MapGet("/reports/export", [Authorize(Roles = "UnitManager,ReportViewer")] async (int? projectId, string? search, DateOnly? from, DateOnly? to, string? scope, string? memberId, IDbContextFactory<ApplicationDbContext> dbFactory) =>
 {
     var startDate = from ?? DateOnly.FromDateTime(DateTime.Today.AddDays(-29));
     var endDate = to ?? DateOnly.FromDateTime(DateTime.Today);
@@ -132,119 +133,111 @@ app.MapGet("/reports/export", [Authorize(Roles = "UnitManager,ReportViewer")] as
     var start = startDate.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
     var end = endDate.AddDays(1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
     await using var db = await dbFactory.CreateDbContextAsync();
+    var reportScope = scope?.ToLowerInvariant() switch
+    {
+        "member" => "member",
+        "completed" => "completed",
+        _ => "team"
+    };
+    var selectedProjectName = projectId.GetValueOrDefault() > 0
+        ? await db.Projects.AsNoTracking().Where(x => x.Id == projectId).Select(x => x.Name).SingleOrDefaultAsync() ?? "المشروع المحدد"
+        : "كل المشاريع";
+    var searchTerm = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
+    using var workbook = new XLWorkbook();
+
+    if (reportScope == "member")
+    {
+        if (string.IsNullOrWhiteSpace(memberId)) return Results.BadRequest("اختر المبرمج قبل تصدير التقرير.");
+
+        var memberName = await db.Users.AsNoTracking()
+            .Where(x => x.Id == memberId)
+            .Select(x => string.IsNullOrWhiteSpace(x.FullName) ? x.UserName ?? "المبرمج" : x.FullName)
+            .SingleOrDefaultAsync();
+        if (memberName is null) return Results.NotFound("المبرمج غير موجود.");
+
+        var achievementsQuery = db.Achievements.AsNoTracking()
+            .Include(x => x.SourceWorkItem)
+                .ThenInclude(x => x!.Project)
+            .Where(x => x.CreatedById == memberId && x.AchievementDate >= startDate && x.AchievementDate <= endDate);
+        if (projectId.GetValueOrDefault() > 0) achievementsQuery = achievementsQuery.Where(x => x.SourceWorkItem != null && x.SourceWorkItem.ProjectId == projectId);
+        if (searchTerm is not null) achievementsQuery = achievementsQuery.Where(x => x.Title.Contains(searchTerm) || x.Details.Contains(searchTerm));
+        var achievements = await achievementsQuery.OrderByDescending(x => x.AchievementDate).ThenByDescending(x => x.CreatedAt).ToListAsync();
+
+        var sheet = CreateExcelReportSheet(workbook, "منجزات مبرمج", memberName, selectedProjectName, startDate, endDate, ["المنجز", "التفاصيل", "المشروع", "تاريخ المنجز"]);
+        var row = 5;
+        foreach (var achievement in achievements)
+        {
+            sheet.Cell(row, 1).Value = achievement.Title;
+            sheet.Cell(row, 2).Value = achievement.Details;
+            sheet.Cell(row, 3).Value = achievement.SourceWorkItem?.Project.Name ?? "منجز يدوي";
+            sheet.Cell(row, 4).Value = achievement.AchievementDate.ToDateTime(TimeOnly.MinValue);
+            sheet.Cell(row, 4).Style.DateFormat.Format = "yyyy/mm/dd";
+            row++;
+        }
+        sheet.Column(2).Width = 52;
+        return ExcelFile(workbook, $"member-achievements-{startDate:yyyyMMdd}-{endDate:yyyyMMdd}.xlsx");
+    }
+
+    if (reportScope == "completed")
+    {
+        var tasksQuery = db.WorkItems.AsNoTracking()
+            .Include(x => x.Project)
+            .Include(x => x.AssignedTo)
+            .Where(x => x.CompletedAt >= start && x.CompletedAt < end);
+        if (projectId.GetValueOrDefault() > 0) tasksQuery = tasksQuery.Where(x => x.ProjectId == projectId);
+        if (searchTerm is not null) tasksQuery = tasksQuery.Where(x => x.Title.Contains(searchTerm) || (x.Description ?? string.Empty).Contains(searchTerm) || x.AssignedTo.FullName.Contains(searchTerm));
+        var tasks = await tasksQuery.OrderByDescending(x => x.CompletedAt).ToListAsync();
+
+        var sheet = CreateExcelReportSheet(workbook, "المهام المكتملة", null, selectedProjectName, startDate, endDate, ["المهمة", "المشروع", "المسؤول", "تاريخ الإنجاز"]);
+        var row = 5;
+        foreach (var task in tasks)
+        {
+            sheet.Cell(row, 1).Value = task.Title;
+            sheet.Cell(row, 2).Value = task.Project.Name;
+            sheet.Cell(row, 3).Value = string.IsNullOrWhiteSpace(task.AssignedTo.FullName) ? task.AssignedTo.UserName ?? string.Empty : task.AssignedTo.FullName;
+            sheet.Cell(row, 4).Value = task.CompletedAt!.Value.ToLocalTime();
+            sheet.Cell(row, 4).Style.DateFormat.Format = "yyyy/mm/dd hh:mm";
+            row++;
+        }
+        return ExcelFile(workbook, $"completed-tasks-{startDate:yyyyMMdd}-{endDate:yyyyMMdd}.xlsx");
+    }
+
     var updatesQuery = db.WorkUpdates.AsNoTracking()
         .Include(x => x.WorkItem)
-            .ThenInclude(x => x.Project)
         .Include(x => x.CreatedBy)
         .Where(x => x.CreatedAt >= start && x.CreatedAt < end);
     if (projectId.GetValueOrDefault() > 0) updatesQuery = updatesQuery.Where(x => x.WorkItem.ProjectId == projectId);
-    if (!string.IsNullOrWhiteSpace(search))
-    {
-        var term = search.Trim();
-        updatesQuery = updatesQuery.Where(x => x.WorkItem.Title.Contains(term) || x.Summary.Contains(term) || x.CreatedBy.FullName.Contains(term));
-    }
-    var updates = await updatesQuery.OrderByDescending(x => x.CreatedAt).ToListAsync();
+    if (searchTerm is not null) updatesQuery = updatesQuery.Where(x => x.WorkItem.Title.Contains(searchTerm) || x.Summary.Contains(searchTerm) || x.CreatedBy.FullName.Contains(searchTerm));
+    var updates = await updatesQuery.ToListAsync();
 
     var statesQuery = db.WorkStateEntries.AsNoTracking()
         .Include(x => x.WorkItem)
-        .Include(x => x.Project)
         .Include(x => x.CreatedBy)
         .Where(x => x.CreatedAt >= start && x.CreatedAt < end);
     if (projectId.GetValueOrDefault() > 0) statesQuery = statesQuery.Where(x => x.ProjectId == projectId);
-    if (!string.IsNullOrWhiteSpace(search))
+    if (searchTerm is not null) statesQuery = statesQuery.Where(x => x.WorkItem.Title.Contains(searchTerm) || x.CreatedBy.FullName.Contains(searchTerm));
+    var states = await statesQuery.ToListAsync();
+    var activities = updates.Select(x => new ExcelTeamActivity(x.CreatedById, DisplayName(x.CreatedBy), x.WorkItemId, x.HoursSpent ?? 0, x.CreatedAt))
+        .Concat(states.Select(x => new ExcelTeamActivity(x.CreatedById, DisplayName(x.CreatedBy), x.WorkItemId, 0, x.CreatedAt)));
+    var teamRows = activities.GroupBy(x => new { x.MemberId, x.MemberName })
+        .Select(x => new ExcelTeamSummary(x.Key.MemberName, x.Count(), x.Select(activity => activity.WorkItemId).Distinct().Count(), x.Sum(activity => activity.Hours), x.Max(activity => activity.CreatedAt)))
+        .OrderByDescending(x => x.Hours)
+        .ThenByDescending(x => x.ActivityCount)
+        .ToList();
+
+    var teamSheet = CreateExcelReportSheet(workbook, "إنجاز أعضاء الفريق", null, selectedProjectName, startDate, endDate, ["المبرمج", "الأنشطة", "المهام", "الساعات", "آخر نشاط"]);
+    var teamRow = 5;
+    foreach (var teamMember in teamRows)
     {
-        var term = search.Trim();
-        statesQuery = statesQuery.Where(x => x.WorkItem.Title.Contains(term) || x.CreatedBy.FullName.Contains(term));
+        teamSheet.Cell(teamRow, 1).Value = teamMember.MemberName;
+        teamSheet.Cell(teamRow, 2).Value = teamMember.ActivityCount;
+        teamSheet.Cell(teamRow, 3).Value = teamMember.WorkItemCount;
+        teamSheet.Cell(teamRow, 4).Value = teamMember.Hours;
+        teamSheet.Cell(teamRow, 5).Value = teamMember.LastActivity.ToLocalTime();
+        teamSheet.Cell(teamRow, 5).Style.DateFormat.Format = "yyyy/mm/dd hh:mm";
+        teamRow++;
     }
-    var states = await statesQuery.OrderByDescending(x => x.CreatedAt).ToListAsync();
-
-    WorkProject? selectedProject = null;
-    HashSet<string>? selectedProjectDeveloperIds = null;
-    if (projectId.GetValueOrDefault() > 0)
-    {
-        selectedProject = await db.Projects.AsNoTracking()
-            .Include(x => x.Developers)
-            .SingleOrDefaultAsync(x => x.Id == projectId);
-
-        if (selectedProject is not null)
-        {
-            selectedProjectDeveloperIds = selectedProject.Developers
-                .Select(x => x.DeveloperId)
-                .ToHashSet();
-            if (selectedProjectDeveloperIds.Count == 0 && !string.IsNullOrWhiteSpace(selectedProject.AssignedDeveloperId))
-            {
-                selectedProjectDeveloperIds.Add(selectedProject.AssignedDeveloperId);
-            }
-        }
-    }
-
-    var achievementsQuery = db.Achievements.AsNoTracking()
-        .Include(x => x.CreatedBy)
-        .Include(x => x.SourceWorkItem)
-            .ThenInclude(x => x!.Project)
-        .Where(x => x.AchievementDate >= startDate && x.AchievementDate <= endDate);
-    if (projectId.GetValueOrDefault() > 0)
-    {
-        achievementsQuery = selectedProjectDeveloperIds is { Count: > 0 }
-            ? achievementsQuery.Where(x => selectedProjectDeveloperIds.Contains(x.CreatedById))
-            : achievementsQuery.Where(_ => false);
-    }
-    if (!string.IsNullOrWhiteSpace(search))
-    {
-        var term = search.Trim();
-        achievementsQuery = achievementsQuery.Where(x =>
-            x.Title.Contains(term) ||
-            x.Details.Contains(term) ||
-            x.CreatedBy.FullName.Contains(term));
-    }
-    var achievements = await achievementsQuery
-        .OrderByDescending(x => x.AchievementDate)
-        .ThenByDescending(x => x.CreatedAt)
-        .ToListAsync();
-
-    var activities = new List<ReportCsvActivity>();
-    activities.AddRange(updates.Select(update => new ReportCsvActivity(
-        update.CreatedAt,
-        string.IsNullOrWhiteSpace(update.CreatedBy.FullName) ? update.CreatedBy.UserName ?? string.Empty : update.CreatedBy.FullName,
-        update.WorkItem.Project.Name,
-        update.WorkItem.Title,
-        update.Summary,
-        update.HoursSpent,
-        update.BlockerReason,
-        "تحديث")));
-    activities.AddRange(states.Select(state => new ReportCsvActivity(
-        state.CreatedAt,
-        string.IsNullOrWhiteSpace(state.CreatedBy.FullName) ? state.CreatedBy.UserName ?? string.Empty : state.CreatedBy.FullName,
-        state.Project.Name,
-        state.WorkItem.Title,
-        WorkStateText(state.Status),
-        null,
-        null,
-        "تغيير حالة")));
-    activities.AddRange(achievements.Select(achievement => new ReportCsvActivity(
-        achievement.AchievementDate.ToDateTime(TimeOnly.MinValue),
-        string.IsNullOrWhiteSpace(achievement.CreatedBy.FullName) ? achievement.CreatedBy.UserName ?? string.Empty : achievement.CreatedBy.FullName,
-        achievement.SourceWorkItem?.Project.Name ?? selectedProject?.Name ?? "منجز يدوي",
-        achievement.SourceWorkItem?.Title ?? "منجز يدوي",
-        achievement.Details,
-        null,
-        null,
-        "منجز")));
-
-    var csv = new System.Text.StringBuilder("\uFEFFالتاريخ,عضو الفريق,المشروع,المهمة,نوع النشاط,الملخص أو التفاصيل,الساعات,العائق\r\n");
-    foreach (var activity in activities.OrderByDescending(x => x.CreatedAt))
-    {
-        csv.Append(CsvCell(activity.CreatedAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm"))).Append(',')
-            .Append(CsvCell(activity.MemberName)).Append(',')
-            .Append(CsvCell(activity.ProjectName)).Append(',')
-            .Append(CsvCell(activity.WorkItemTitle)).Append(',')
-            .Append(CsvCell(activity.Type)).Append(',')
-            .Append(CsvCell(activity.Summary)).Append(',')
-            .Append(activity.HoursSpent?.ToString("0.##") ?? string.Empty).Append(',')
-            .Append(CsvCell(activity.BlockerReason)).AppendLine();
-    }
-
-    return Results.File(System.Text.Encoding.UTF8.GetBytes(csv.ToString()), "text/csv; charset=utf-8", $"team-report-{startDate:yyyyMMdd}-{endDate:yyyyMMdd}.csv");
+    return ExcelFile(workbook, $"team-achievements-{startDate:yyyyMMdd}-{endDate:yyyyMMdd}.xlsx");
 });
 
 app.MapGet("/reports/project-pdf", [Authorize(Roles = "UnitManager,ReportViewer")] async (int projectId, DateOnly? from, DateOnly? to, IDbContextFactory<ApplicationDbContext> dbFactory) =>
@@ -390,15 +383,73 @@ using (var scope = app.Services.CreateScope())
 
 app.Run();
 
-static string CsvCell(string? value) => $"\"{(value ?? string.Empty).Replace("\"", "\"\"")}\"";
+static string DisplayName(ApplicationUser user) =>
+    string.IsNullOrWhiteSpace(user.FullName) ? user.UserName ?? string.Empty : user.FullName;
 
-static string WorkStateText(WorkActivityStatus status) => status switch
+static IXLWorksheet CreateExcelReportSheet(
+    XLWorkbook workbook,
+    string title,
+    string? memberName,
+    string projectName,
+    DateOnly startDate,
+    DateOnly endDate,
+    string[] headers)
 {
-    WorkActivityStatus.WorkingNow => "تم تغيير حالة العمل إلى: أعمل الآن.",
-    WorkActivityStatus.Paused => "تم تغيير حالة العمل إلى: متوقف.",
-    WorkActivityStatus.Finished => "تم تغيير حالة العمل إلى: منتهي.",
-    WorkActivityStatus.NotStarted => "تم تغيير حالة العمل إلى: لم يبدأ.",
-    _ => "تم تغيير حالة العمل."
-};
+    var sheet = workbook.Worksheets.Add("التقرير");
+    sheet.RightToLeft = true;
 
-sealed record ReportCsvActivity(DateTime CreatedAt, string MemberName, string ProjectName, string WorkItemTitle, string Summary, decimal? HoursSpent, string? BlockerReason, string Type);
+    var titleRange = sheet.Range(1, 1, 1, headers.Length);
+    titleRange.Merge();
+    titleRange.Value = title;
+    titleRange.Style.Font.Bold = true;
+    titleRange.Style.Font.FontSize = 16;
+    titleRange.Style.Font.FontColor = XLColor.White;
+    titleRange.Style.Fill.BackgroundColor = XLColor.FromHtml("2563EB");
+    titleRange.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+    titleRange.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+    sheet.Row(1).Height = 28;
+
+    var detailsRange = sheet.Range(2, 1, 2, headers.Length);
+    detailsRange.Merge();
+    detailsRange.Value = $"الفترة: {startDate:yyyy/MM/dd} — {endDate:yyyy/MM/dd} | المشروع: {projectName}" + (string.IsNullOrWhiteSpace(memberName) ? string.Empty : $" | المبرمج: {memberName}");
+    detailsRange.Style.Font.Bold = true;
+    detailsRange.Style.Font.FontColor = XLColor.FromHtml("334155");
+    detailsRange.Style.Fill.BackgroundColor = XLColor.FromHtml("EFF6FF");
+    detailsRange.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+    detailsRange.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+    sheet.Row(2).Height = 23;
+
+    for (var column = 0; column < headers.Length; column++)
+    {
+        var cell = sheet.Cell(4, column + 1);
+        cell.Value = headers[column];
+        cell.Style.Font.Bold = true;
+        cell.Style.Font.FontColor = XLColor.White;
+        cell.Style.Fill.BackgroundColor = XLColor.FromHtml("0F172A");
+        cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        cell.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+    }
+
+    sheet.Row(4).Height = 23;
+    sheet.SheetView.FreezeRows(4);
+    sheet.Columns().Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+    sheet.Columns().Style.Alignment.WrapText = true;
+    for (var column = 1; column <= headers.Length; column++) sheet.Column(column).Width = 22;
+    return sheet;
+}
+
+static IResult ExcelFile(XLWorkbook workbook, string fileName)
+{
+    using (workbook)
+    using (var stream = new MemoryStream())
+    {
+        workbook.SaveAs(stream);
+        return Results.File(
+            stream.ToArray(),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            fileName);
+    }
+}
+
+sealed record ExcelTeamActivity(string MemberId, string MemberName, int WorkItemId, decimal Hours, DateTime CreatedAt);
+sealed record ExcelTeamSummary(string MemberName, int ActivityCount, int WorkItemCount, decimal Hours, DateTime LastActivity);

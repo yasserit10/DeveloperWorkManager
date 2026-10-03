@@ -8,7 +8,7 @@
 
 <section class="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
     <div><p class="mb-2 text-sm font-extrabold text-brand-600">القياس والتقارير</p><h1 class="m-0 text-3xl font-black text-slate-900">تقرير إنجاز الفريق</h1><p class="mb-0 mt-3 text-sm leading-7 text-slate-500">راجع تحديثات الأعضاء والساعات المسجلة والمهام المكتملة خلال فترة محددة.</p></div>
-    <div class="flex flex-wrap gap-3 print-hide"><button type="button" class="btn-secondary" @onclick="PrintAsync"><i class="fa-solid fa-print" aria-hidden="true"></i> طباعة التقرير</button><a class="btn-secondary no-underline" href="@ExportUrl" data-no-page-transition><i class="fa-solid fa-file-csv" aria-hidden="true"></i> تصدير Excel (CSV)</a>@if (filter.ProjectId > 0) { <a class="btn-primary no-underline" href="@PdfUrl" target="_blank"><i class="fa-solid fa-file-pdf" aria-hidden="true"></i> تقرير PDF شامل</a> }</div>
+    <div class="flex flex-wrap gap-3 print-hide"><button type="button" class="btn-secondary" @onclick="PrintAsync"><i class="fa-solid fa-print" aria-hidden="true"></i> طباعة التقرير</button>@if (CanExport) { <a class="btn-secondary no-underline" href="@ExportUrl" data-no-page-transition><i class="fa-solid fa-file-excel" aria-hidden="true"></i> تصدير Excel</a> } else { <button type="button" class="btn-secondary cursor-not-allowed opacity-50" disabled title="اختر المبرمج أولاً"><i class="fa-solid fa-file-excel" aria-hidden="true"></i> تصدير Excel</button> }@if (filter.ProjectId > 0) { <a class="btn-primary no-underline" href="@PdfUrl" target="_blank"><i class="fa-solid fa-file-pdf" aria-hidden="true"></i> تقرير PDF شامل</a> }</div>
 </section>
 
 <section class="section-card mt-6 p-5 sm:p-6">
@@ -168,7 +168,8 @@ else
     private int NotStartedCount => workStates.Count(x => x.Status == WorkActivityStatus.NotStarted);
     private string printScope = "team";
     private string printMemberId = string.Empty;
-    private string ExportUrl => $"reports/export?projectId={filter.ProjectId}&from={filter.From:yyyy-MM-dd}&to={filter.To:yyyy-MM-dd}&search={Uri.EscapeDataString(filter.SearchText)}";
+    private bool CanExport => printScope != "member" || !string.IsNullOrWhiteSpace(printMemberId);
+    private string ExportUrl => $"reports/export?projectId={filter.ProjectId}&from={filter.From:yyyy-MM-dd}&to={filter.To:yyyy-MM-dd}&search={Uri.EscapeDataString(filter.SearchText)}&scope={printScope}&memberId={Uri.EscapeDataString(printMemberId)}";
     private string PdfUrl => $"reports/project-pdf?projectId={filter.ProjectId}&from={filter.From:yyyy-MM-dd}&to={filter.To:yyyy-MM-dd}";
     private string PdfUrlFor(int projectId) => $"reports/project-pdf?projectId={projectId}&from={filter.From:yyyy-MM-dd}&to={filter.To:yyyy-MM-dd}";
     private IEnumerable<AppDropdownOption> ProjectOptions => [new("0", "كل المشاريع"), .. projects.Select(x => new AppDropdownOption(x.Id.ToString(), x.Name))];
