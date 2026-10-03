@@ -134,6 +134,7 @@ app.MapGet("/reports/export", [Authorize(Roles = "UnitManager,ReportViewer")] as
     await using var db = await dbFactory.CreateDbContextAsync();
     var updatesQuery = db.WorkUpdates.AsNoTracking()
         .Include(x => x.WorkItem)
+            .ThenInclude(x => x.Project)
         .Include(x => x.CreatedBy)
         .Where(x => x.CreatedAt >= start && x.CreatedAt < end);
     if (projectId.GetValueOrDefault() > 0) updatesQuery = updatesQuery.Where(x => x.WorkItem.ProjectId == projectId);
@@ -146,6 +147,7 @@ app.MapGet("/reports/export", [Authorize(Roles = "UnitManager,ReportViewer")] as
 
     var statesQuery = db.WorkStateEntries.AsNoTracking()
         .Include(x => x.WorkItem)
+        .Include(x => x.Project)
         .Include(x => x.CreatedBy)
         .Where(x => x.CreatedAt >= start && x.CreatedAt < end);
     if (projectId.GetValueOrDefault() > 0) statesQuery = statesQuery.Where(x => x.ProjectId == projectId);
@@ -156,10 +158,55 @@ app.MapGet("/reports/export", [Authorize(Roles = "UnitManager,ReportViewer")] as
     }
     var states = await statesQuery.OrderByDescending(x => x.CreatedAt).ToListAsync();
 
+    WorkProject? selectedProject = null;
+    HashSet<string>? selectedProjectDeveloperIds = null;
+    if (projectId.GetValueOrDefault() > 0)
+    {
+        selectedProject = await db.Projects.AsNoTracking()
+            .Include(x => x.Developers)
+            .SingleOrDefaultAsync(x => x.Id == projectId);
+
+        if (selectedProject is not null)
+        {
+            selectedProjectDeveloperIds = selectedProject.Developers
+                .Select(x => x.DeveloperId)
+                .ToHashSet();
+            if (selectedProjectDeveloperIds.Count == 0 && !string.IsNullOrWhiteSpace(selectedProject.AssignedDeveloperId))
+            {
+                selectedProjectDeveloperIds.Add(selectedProject.AssignedDeveloperId);
+            }
+        }
+    }
+
+    var achievementsQuery = db.Achievements.AsNoTracking()
+        .Include(x => x.CreatedBy)
+        .Include(x => x.SourceWorkItem)
+            .ThenInclude(x => x!.Project)
+        .Where(x => x.AchievementDate >= startDate && x.AchievementDate <= endDate);
+    if (projectId.GetValueOrDefault() > 0)
+    {
+        achievementsQuery = selectedProjectDeveloperIds is { Count: > 0 }
+            ? achievementsQuery.Where(x => selectedProjectDeveloperIds.Contains(x.CreatedById))
+            : achievementsQuery.Where(_ => false);
+    }
+    if (!string.IsNullOrWhiteSpace(search))
+    {
+        var term = search.Trim();
+        achievementsQuery = achievementsQuery.Where(x =>
+            x.Title.Contains(term) ||
+            x.Details.Contains(term) ||
+            x.CreatedBy.FullName.Contains(term));
+    }
+    var achievements = await achievementsQuery
+        .OrderByDescending(x => x.AchievementDate)
+        .ThenByDescending(x => x.CreatedAt)
+        .ToListAsync();
+
     var activities = new List<ReportCsvActivity>();
     activities.AddRange(updates.Select(update => new ReportCsvActivity(
         update.CreatedAt,
         string.IsNullOrWhiteSpace(update.CreatedBy.FullName) ? update.CreatedBy.UserName ?? string.Empty : update.CreatedBy.FullName,
+        update.WorkItem.Project.Name,
         update.WorkItem.Title,
         update.Summary,
         update.HoursSpent,
@@ -168,17 +215,28 @@ app.MapGet("/reports/export", [Authorize(Roles = "UnitManager,ReportViewer")] as
     activities.AddRange(states.Select(state => new ReportCsvActivity(
         state.CreatedAt,
         string.IsNullOrWhiteSpace(state.CreatedBy.FullName) ? state.CreatedBy.UserName ?? string.Empty : state.CreatedBy.FullName,
+        state.Project.Name,
         state.WorkItem.Title,
         WorkStateText(state.Status),
         null,
         null,
         "تغيير حالة")));
+    activities.AddRange(achievements.Select(achievement => new ReportCsvActivity(
+        achievement.AchievementDate.ToDateTime(TimeOnly.MinValue),
+        string.IsNullOrWhiteSpace(achievement.CreatedBy.FullName) ? achievement.CreatedBy.UserName ?? string.Empty : achievement.CreatedBy.FullName,
+        achievement.SourceWorkItem?.Project.Name ?? selectedProject?.Name ?? "منجز يدوي",
+        achievement.SourceWorkItem?.Title ?? "منجز يدوي",
+        achievement.Details,
+        null,
+        null,
+        "منجز")));
 
-    var csv = new System.Text.StringBuilder("\uFEFFالتاريخ,عضو الفريق,المهمة,نوع النشاط,الملخص,الساعات,العائق\r\n");
+    var csv = new System.Text.StringBuilder("\uFEFFالتاريخ,عضو الفريق,المشروع,المهمة,نوع النشاط,الملخص أو التفاصيل,الساعات,العائق\r\n");
     foreach (var activity in activities.OrderByDescending(x => x.CreatedAt))
     {
         csv.Append(CsvCell(activity.CreatedAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm"))).Append(',')
             .Append(CsvCell(activity.MemberName)).Append(',')
+            .Append(CsvCell(activity.ProjectName)).Append(',')
             .Append(CsvCell(activity.WorkItemTitle)).Append(',')
             .Append(CsvCell(activity.Type)).Append(',')
             .Append(CsvCell(activity.Summary)).Append(',')
@@ -343,4 +401,4 @@ static string WorkStateText(WorkActivityStatus status) => status switch
     _ => "تم تغيير حالة العمل."
 };
 
-sealed record ReportCsvActivity(DateTime CreatedAt, string MemberName, string WorkItemTitle, string Summary, decimal? HoursSpent, string? BlockerReason, string Type);
+sealed record ReportCsvActivity(DateTime CreatedAt, string MemberName, string ProjectName, string WorkItemTitle, string Summary, decimal? HoursSpent, string? BlockerReason, string Type);
